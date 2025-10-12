@@ -9,8 +9,6 @@ from skimage import io as skio
 import IPython
 from skimage.transform import rescale
 
-
-#convertir les images en 0..255, utile pour la suite
 def _to_float255(img: np.ndarray) -> np.ndarray:
     """
     Convertit une image RGB en float32 échelle 0..255, sans changer la gamme relative.
