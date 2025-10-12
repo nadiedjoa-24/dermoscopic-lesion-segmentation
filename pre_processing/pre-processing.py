@@ -1,10 +1,19 @@
 import numpy as np
 import cv2
+from skimage.morphology import skeletonize
 
-'''Je charge ici une image, en l'occurence ISIC_0000140.jpg'''
+'''Je charge ici une image, en l'occurence ISIC_0000030.jpg'''
+import os
 
-im1 = cv2.imread("melanoma/ISIC_0000140.jpg", cv2.IMREAD_COLOR)
-im1 = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB)
+# construire un chemin absolu vers le dossier dataset, basé sur ce fichier
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATASET_PATH = os.path.normpath(os.path.join(BASE_DIR, '..', 'dataset', 'ISIC_0000030.jpg'))
+
+im1 = cv2.imread(DATASET_PATH, cv2.IMREAD_COLOR)
+if im1 is not None:
+    im2 = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB)
+else:
+    im2 = None
 
 if im1 is None:
     print("image pas chargée")
@@ -88,6 +97,94 @@ def cadre_noire(img):
     cropped_img = img[top:bottom, left:right]
     return cropped_img
 
-im1_coupé = cadre_noire(im1)
-cv2.imwrite("image_coupé.png", im1_coupé)
+'im1_coupé = cadre_noire(im1)'
+'cv2.imwrite("image_coupé.png", im1_coupé)'
+
+''' hair removal'''
+
+def luminance(im=None):
+
+    if im is None:
+        raise ValueError("il n'y a pas d'image")
+
+    im_hsv = cv2.cvtColor(im, cv2.COLOR_BGR2HSV)
+    v_channel = im_hsv[:, :, 2]
+    return v_channel
+
+def genere_masque(v_channel):
+    #
+    if v_channel is None or len(v_channel.shape) != 2:
+        raise ValueError("L'entrée doit être une image 2D (canal V).")
+
+    thresholds = []
+
+    for i in range(256):
+        _, t_i = cv2.threshold(v_channel, i, 255, cv2.THRESH_BINARY)
+        thresholds.append(t_i)
+
+    return thresholds
+
+def detect_gaps_in_ti(ti , kernel_size: int = 5):
+    """
+    Applique un closing sur le masque Ti pour combler les poils sombres,
+    puis extrait le squelette des fragments de poils détectés.
+
+    Paramètres :
+        ti_mask (np.ndarray) : Image binaire Ti (uint8, valeurs 0 et 255)
+        kernel_size (int) : Taille du disque structurant pour le closing
+
+    Retour :
+        gap_skeleton (np.ndarray) : Image binaire (0 ou 1) contenant le squelette des gaps
+    """
+    if ti is None:
+        raise ValueError("Le masque Ti est None.")
+
+    # s'assurer que ti est un tableau numpy
+    if not isinstance(ti, np.ndarray):
+        raise ValueError("Le masque Ti doit être un numpy.ndarray.")
+
+    # convertir en binaire uint8 (0 ou 1)
+    ti_bin = (ti > 0).astype(np.uint8)
+
+    # Structuring element en disque
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+
+    # Opening puis Closing pour lisser / combler
+    opened = cv2.morphologyEx(ti_bin, cv2.MORPH_OPEN, kernel)
+    closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
+    omega_oc = closed.copy()
+
+    # Skeletonisation attend un tableau booléen
+    omega_bool = omega_oc.astype(bool)
+    skeleton = skeletonize(omega_bool).astype(np.uint8)  # 0/1
+
+    # Extraire les fragments de squelette qui ne sont pas dans Ti
+    gap_skeleton = cv2.subtract(skeleton, ti_bin)
+
+    # Retour en uint8 0/255 pour être visible et sauvegardable
+    gap_skeleton_255 = (gap_skeleton * 255).astype(np.uint8)
+    return gap_skeleton_255
+
+v = luminance(im1)
+t = genere_masque(v)
+print(len(t))
+# s'assurer que le dossier test existe (placé au même niveau que dataset)
+TEST_DIR = os.path.normpath(os.path.join(BASE_DIR,'test'))
+os.makedirs(TEST_DIR, exist_ok=True)
+
+
+# préparer l'image à écrire: convertir en uint8 si nécessaire
+t0 = detect_gaps_in_ti(t[120], 5)
+
+if t0 is None:
+    raise ValueError('t[0] est None, impossible de sauvegarder')
+
+if t0.dtype == np.bool_:
+    t0 = (t0.astype(np.uint8) * 255)
+elif t0.dtype != np.uint8:
+    t0 = np.clip(t0, 0, 255).astype(np.uint8)
+
+out_path = os.path.join(TEST_DIR, 'image_coupé.png')
+ok = cv2.imwrite(out_path, t0)
+print(f"Écriture de {out_path} :", ok)
 
