@@ -31,13 +31,11 @@ def _to_float255(img: np.ndarray) -> np.ndarray:
 
 
 #LUMINANCE BT.601
-def luminance_bt601(img_rgb: np.ndarray, *, normalize: bool = False) -> np.ndarray:
+def luminance_bt601(img_rgb: np.ndarray) -> np.ndarray:
     """
     Calcule la luminance Y selon ITU-R BT.601 (R,G,B pondérés 0.299/0.587/0.114).
     Entrée  : img_rgb (H,W,3) en uint8/uint16/float.
-    Sortie  : Y en float32.
-      - si normalize=False : Y est en échelle 0..255 (recommandé pour la suite LC).
-      - si normalize=True  : Y est en échelle 0..1.
+    Sortie  : Y en float32, échelle 0..255 (comme attendu par LBP).
     """
     if img_rgb.ndim != 3 or img_rgb.shape[-1] != 3:
         raise ValueError("img_rgb doit avoir la forme (H, W, 3)")
@@ -45,13 +43,11 @@ def luminance_bt601(img_rgb: np.ndarray, *, normalize: bool = False) -> np.ndarr
     img = _to_float255(img_rgb)  # float32, 0..255
     R, G, B = img[..., 0], img[..., 1], img[..., 2]
     Y = 0.299 * R + 0.587 * G + 0.114 * B  # BT.601
-
-    if normalize:
-        Y = Y / 255.0
+    
     return Y.astype(np.float32, copy=False)
 
 
-#LPB P=8, R=1, VERSION NUMPY
+#LPB P=8, R=1, VERSION NUMPY A LA MAIN
 def lbp_p8_r1_numpy(Y: np.ndarray, *, pad_mode: str = "reflect", strict: bool = True) -> np.ndarray:
     """
     Calcule les Local Binary Patterns (LBP) pour P=8, R=1 sur une image de luminance Y.
@@ -129,7 +125,7 @@ def binarize_lbp_patterns(lbp_codes: np.ndarray) -> np.ndarray:
     Binarise les codes LBP selon le critère de l'article :
     - LBP = 0 et puissances de 2 (motifs lisses) -> 0
     - Tous les autres codes (textures non lisses) -> 1
-    Les 1 se concentrent dans la lésion.
+    L'idée est que les 1 sont censés être concentrés dans la lésion.
     """
     # Puissances de 2 : [1, 2, 4, 8, 16, 32, 64, 128]
     powers_of_2 = np.array([2**i for i in range(8)], dtype=np.uint8)
@@ -307,7 +303,7 @@ def lbp_clustering_segmentation(img_rgb: np.ndarray,
         print("Étape 1: Conversion en luminance BT.601...")
     
     # 1. Luminance Y (BT.601)
-    Y = luminance_bt601(img_rgb, normalize=False)
+    Y = luminance_bt601(img_rgb)
     
     if verbose:
         print("Étape 2: Calcul des LBP (P=8, R=1)...")
@@ -375,25 +371,24 @@ def lbp_clustering_segmentation(img_rgb: np.ndarray,
 
 def compute_segmentation_metrics(predicted_mask: np.ndarray, ground_truth_mask: np.ndarray) -> dict:
     """
-    Calcule les métriques standard de segmentation
+    Calcule le coefficient de Dice pour l'évaluation de segmentation
     
     Paramètres:
     - predicted_mask: Masque prédit (0 ou 1)
     - ground_truth_mask: Masque de vérité terrain (0 ou 1)
     
     Retourne:
-    - dict avec les métriques: dice, jaccard, accuracy, sensitivity, specificity
+    - dict avec la métrique: dice
     """
     
     # Conversion en booléen et aplatissement
     pred = predicted_mask.astype(bool).flatten()
     gt = ground_truth_mask.astype(bool).flatten()
     
-    # Calcul des true positives, false positives, etc.
+    # Calcul des true positives, false positives, false negatives
     tp = np.sum(pred & gt)
     fp = np.sum(pred & ~gt)
     fn = np.sum(~pred & gt)
-    tn = np.sum(~pred & ~gt)
     
     # Éviter la division par zéro
     epsilon = 1e-7
@@ -401,32 +396,8 @@ def compute_segmentation_metrics(predicted_mask: np.ndarray, ground_truth_mask: 
     # Dice Coefficient (F1-score)
     dice = (2 * tp) / (2 * tp + fp + fn + epsilon)
     
-    # Jaccard Index (IoU)
-    jaccard = tp / (tp + fp + fn + epsilon)
-    
-    # Accuracy
-    accuracy = (tp + tn) / (tp + tn + fp + fn + epsilon)
-    
-    # Sensitivity (Recall)
-    sensitivity = tp / (tp + fn + epsilon)
-    
-    # Specificity
-    specificity = tn / (tn + fp + epsilon)
-    
-    # Precision
-    precision = tp / (tp + fp + epsilon)
-    
     return {
-        'dice': dice,
-        'jaccard': jaccard,
-        'accuracy': accuracy,
-        'sensitivity': sensitivity,
-        'specificity': specificity,
-        'precision': precision,
-        'tp': tp,
-        'fp': fp,
-        'fn': fn,
-        'tn': tn
+        'dice': dice
     }
 
 
@@ -444,234 +415,3 @@ def load_ground_truth_mask(mask_path: str) -> np.ndarray:
     binary_mask = (mask > 127).astype(np.uint8)
     
     return binary_mask
-
-
-def evaluate_single_image(img_path: str, gt_mask_path: str, verbose: bool = False) -> dict:
-    """
-    Évalue la segmentation sur une seule image
-    
-    Paramètres:
-    - img_path: Chemin vers l'image RGB
-    - gt_mask_path: Chemin vers le masque de vérité terrain
-    - verbose: Affichage détaillé
-    
-    Retourne:
-    - dict avec les métriques et les résultats
-    """
-    
-    # Charger l'image
-    img = skio.imread(img_path)
-    
-    # Charger le masque de vérité terrain
-    gt_mask = load_ground_truth_mask(gt_mask_path)
-    
-    if verbose:
-        print(f"Traitement de {os.path.basename(img_path)}...")
-        print(f"Taille image: {img.shape}")
-        print(f"Taille GT mask: {gt_mask.shape}")
-    
-    # Segmentation LBP Clustering
-    pred_mask, intermediate = lbp_clustering_segmentation(img, verbose=verbose)
-    
-    # Redimensionner si nécessaire
-    if pred_mask.shape != gt_mask.shape:
-        from skimage.transform import resize
-        pred_mask = resize(pred_mask, gt_mask.shape, 
-                          preserve_range=True, anti_aliasing=False) > 0.5
-        pred_mask = pred_mask.astype(np.uint8)
-    
-    # Calcul des métriques
-    metrics = compute_segmentation_metrics(pred_mask, gt_mask)
-    
-    if verbose:
-        print(f"Dice: {metrics['dice']:.4f}")
-        print(f"Jaccard: {metrics['jaccard']:.4f}")
-        print(f"Accuracy: {metrics['accuracy']:.4f}")
-    
-    return {
-        'image_path': img_path,
-        'gt_mask_path': gt_mask_path,
-        'predicted_mask': pred_mask,
-        'ground_truth_mask': gt_mask,
-        'metrics': metrics,
-        'intermediate_results': intermediate
-    }
-
-
-# ========== VISUALISATION ==========
-
-def visualize_segmentation_result(result: dict, save_path: str = None):
-    """
-    Visualise les résultats de segmentation pour une image
-    """
-    img = skio.imread(result['image_path'])
-    pred_mask = result['predicted_mask']
-    gt_mask = result['ground_truth_mask']
-    metrics = result['metrics']
-    
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
-    
-    # Image originale
-    axes[0].imshow(img)
-    axes[0].set_title('Image originale')
-    axes[0].axis('off')
-    
-    # Masque prédit
-    axes[1].imshow(pred_mask, cmap='gray')
-    axes[1].set_title('Segmentation prédite')
-    axes[1].axis('off')
-    
-    # Masque vérité terrain
-    axes[2].imshow(gt_mask, cmap='gray')
-    axes[2].set_title('Vérité terrain')
-    axes[2].axis('off')
-    
-    # Overlay comparaison
-    overlay = np.zeros((*img.shape[:2], 3))
-    overlay[gt_mask == 1] = [0, 1, 0]  # Vert pour GT
-    overlay[pred_mask == 1] = [1, 0, 0]  # Rouge pour prédiction
-    overlay[(gt_mask == 1) & (pred_mask == 1)] = [1, 1, 0]  # Jaune pour intersection
-    
-    axes[3].imshow(img)
-    axes[3].imshow(overlay, alpha=0.3)
-    axes[3].set_title(f'Overlay (Dice: {metrics["dice"]:.3f})')
-    axes[3].axis('off')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    
-    plt.show()
-
-
-def plot_metrics_diagram(results: list, save_path: str = None):
-    """
-    Crée le diagramme demandé : photos en abscisse, scores en ordonnée
-    """
-    # Extraire les noms d'images et les métriques
-    image_names = [os.path.basename(r['image_path']).replace('.jpg', '') for r in results]
-    
-    metrics_names = ['dice', 'jaccard', 'accuracy', 'sensitivity', 'specificity']
-    metrics_data = {name: [r['metrics'][name] for r in results] for name in metrics_names}
-    
-    # Créer le graphique
-    fig, ax = plt.subplots(figsize=(12, 8))
-    
-    x_pos = np.arange(len(image_names))
-    width = 0.15
-    
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-    
-    # Barres pour chaque métrique
-    for i, (metric_name, values) in enumerate(metrics_data.items()):
-        ax.bar(x_pos + i * width, values, width, 
-               label=metric_name.capitalize(), color=colors[i], alpha=0.8)
-    
-    ax.set_xlabel('Images')
-    ax.set_ylabel('Score (0-1)')
-    ax.set_title('Évaluation de la segmentation LBP Clustering')
-    ax.set_xticks(x_pos + width * 2)
-    ax.set_xticklabels(image_names, rotation=45, ha='right')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(0, 1)
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    
-    plt.show()
-    
-    # Afficher aussi les valeurs numériques
-    print("\n=== RÉSULTATS NUMÉRIQUES ===")
-    for i, result in enumerate(results):
-        img_name = os.path.basename(result['image_path'])
-        metrics = result['metrics']
-        print(f"\n{img_name}:")
-        for metric_name in metrics_names:
-            print(f"  {metric_name.capitalize():12}: {metrics[metric_name]:.4f}")
-
-
-def evaluate_dataset(dataset_dir: str, image_pattern: str = "*.jpg", 
-                     mask_pattern: str = "*Segmentation.png", verbose: bool = True) -> list:
-    """
-    Évalue la méthode sur un dataset complet
-    
-    Paramètres:
-    - dataset_dir: Répertoire contenant les images et masques
-    - image_pattern: Pattern pour les images (ex: "*.jpg")
-    - mask_pattern: Pattern pour les masques (ex: "*Segmentation.png")
-    
-    Retourne:
-    - Liste des résultats pour chaque image
-    """
-    import glob
-    
-    # Trouver toutes les images
-    image_paths = glob.glob(os.path.join(dataset_dir, image_pattern))
-    image_paths.sort()
-    
-    results = []
-    
-    for img_path in image_paths:
-        # Construire le chemin du masque correspondant
-        base_name = os.path.basename(img_path).replace('.jpg', '')
-        mask_path = os.path.join(dataset_dir, f"{base_name}_Segmentation.png")
-        
-        if not os.path.exists(mask_path):
-            print(f"Attention: Masque non trouvé pour {img_path}")
-            continue
-        
-        try:
-            # Évaluer cette image
-            result = evaluate_single_image(img_path, mask_path, verbose=verbose)
-            results.append(result)
-            
-            if verbose:
-                print(f"✓ {base_name} traité avec succès")
-                
-        except Exception as e:
-            print(f"✗ Erreur lors du traitement de {base_name}: {e}")
-            continue
-    
-    return results
-
-
-# ========== FONCTION PRINCIPALE ==========
-
-def main_evaluation():
-    """
-    Fonction principale pour lancer l'évaluation complète
-    """
-    # Répertoire du dataset
-    dataset_dir = "dataset"
-    
-    print("=== ÉVALUATION DE LA MÉTHODE LBP CLUSTERING ===")
-    print(f"Dataset: {dataset_dir}")
-    
-    # Évaluation sur le dataset
-    results = evaluate_dataset(dataset_dir, verbose=True)
-    
-    if not results:
-        print("Aucun résultat obtenu. Vérifiez le dataset.")
-        return
-    
-    print(f"\n{len(results)} image(s) traitée(s) avec succès.")
-    
-    # Créer le diagramme des scores
-    plot_metrics_diagram(results, save_path="segmentation_scores.png")
-    
-    # Visualiser chaque résultat
-    for i, result in enumerate(results):
-        print(f"\nVisualisation {i+1}/{len(results)}:")
-        visualize_segmentation_result(result, 
-                                    save_path=f"segmentation_result_{i+1}.png")
-    
-    return results
-
-
-# Test sur l'image exemple
-if __name__ == "__main__":
-    main_evaluation()
