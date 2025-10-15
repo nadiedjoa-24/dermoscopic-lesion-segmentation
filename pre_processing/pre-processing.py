@@ -7,8 +7,8 @@ import os
 
 # construire un chemin absolu vers le dossier dataset, basé sur ce fichier
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.normpath(os.path.join(BASE_DIR, 'melanoma' , 'ISIC_0000146.jpg'))
-
+DATASET_PATH = os.path.normpath(os.path.join(BASE_DIR,'..', 'dataset', 'melanoma' , 'ISIC_0000146.jpg'))
+DATASET_PATH2 = os.path.normpath(os.path.join(BASE_DIR, 'test'))
 im1 = cv2.imread(DATASET_PATH, cv2.IMREAD_COLOR)
 if im1 is not None:
     im2 = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB)
@@ -100,9 +100,9 @@ def cadre_noire(img):
 'im1_coupé = cadre_noire(im1)'
 'cv2.imwrite("image_coupé.png", im1_coupé)'
 
-''' hair removal'''
+''' hair removal''' " on implémente un algorithme qui permet d'effacer les poils sur l'image"
 
-def luminance(im=None):
+def luminance(im=None): #renvoie le canal V (= Luminance ici) du domaine HSV de notre image
 
     if im is None:
         raise ValueError("il n'y a pas d'image")
@@ -111,7 +111,7 @@ def luminance(im=None):
     v_channel = im_hsv[:, :, 2]
     return v_channel
 
-def genere_masque(v_channel):
+def genere_masque(v_channel): #crée les 256 couches binaires à partir de la luminance
     #
     if v_channel is None or len(v_channel.shape) != 2:
         raise ValueError("L'entrée doit être une image 2D (canal V).")
@@ -124,37 +124,52 @@ def genere_masque(v_channel):
 
     return thresholds
 
-def detect_hairs_from_ti(ti: np.ndarray, kernel_size: int = 5, lambda_: float = 0.2) -> np.ndarray:
+v = luminance(im1)
+t = genere_masque(v)
 
+
+chemin_original = os.path.join(DATASET_PATH2, "original.jpg")
+chemin_modif = os.path.join(DATASET_PATH2, "modif.jpg")
+cv2.imwrite(chemin_modif, t[100])
+
+def detect_hairs_from_ti(ti: np.ndarray, kernel_size: int = 5, lambda_: float = 0.2) -> np.ndarray:
+#detecte les poils dans le masque ti, via closing, skeleton, distance transform et reconstruction par disque
     if ti is None or not isinstance(ti, np.ndarray):
         raise ValueError("Entrée invalide pour Ti.")
     
-    # Conversion en binaire 0/1
+    # Conversion en binaire 0/1, ne pas garder binaire 0;255
     ti_bin = (ti > 0).astype(np.uint8)
 
     # Structuring element
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size)) #disque de rayon kernel_size/2 où on va appliquer les opérations morphologiques
 
-    # -- Étape 1 : Morphological closing pour poils sombres --
-    opened = cv2.morphologyEx(ti_bin, cv2.MORPH_OPEN, kernel)
-    closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel)
+    # Morphological closing pour poils sombres 
+    opened = cv2.morphologyEx(ti_bin, cv2.MORPH_OPEN, kernel) #érosion (réduction) + dilatation (grossissement) => enlève les points blancs dans l'image
+    closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel) #dilatation + érosion => enlève points noirs hors de l'image
+    
     omega_oc = closed.copy()
 
-    # -- Étape 2 : Morphological opening pour Ω_co (pour DT plus généreux) --
+    # Morphological opening pour Ω_co (pour DT plus généreux) 
     closed2 = cv2.morphologyEx(ti_bin, cv2.MORPH_CLOSE, kernel)
     omega_co = cv2.morphologyEx(closed2, cv2.MORPH_OPEN, kernel)
+    chemin_close = os.path.join(DATASET_PATH2, "close.jpg")
+    cv2.imwrite(chemin_close, closed2 * 255)
+    chemin_open = os.path.join(DATASET_PATH2, "open.jpg")
+    cv2.imwrite(chemin_open, omega_co * 255)
 
-    # -- Étape 3 : Skeletonisation de Ω_oc --
+    # Skeletonisation de Ω_oc 
     skeleton = skeletonize(omega_oc.astype(bool)).astype(np.uint8)  # 0/1
+    chemin_open = os.path.join(DATASET_PATH2, "skeleton.jpg")
+    cv2.imwrite(chemin_open, skeleton * 255)
 
-    # -- Étape 4 : Distance Transform sur Ω_oc et Ω_co --
+    # Distance Transform sur Ω_oc et Ω_co 
     dt_oc = cv2.distanceTransform((omega_oc * 255).astype(np.uint8), cv2.DIST_L2, 3)
     dt_co = cv2.distanceTransform((omega_co * 255).astype(np.uint8), cv2.DIST_L2, 3)
 
-    # -- Étape 5 : Fusion des DTs pour obtenir ρ(x) --
+    # Fusion des DTs pour obtenir ρ(x) 
     rho = (1 - lambda_) * dt_co + lambda_ * dt_oc
 
-    # -- Étape 6 : Reconstruction par disques centrés sur squelette --
+    # Reconstruction par disques centrés sur squelette 
     Gi_mask = np.zeros_like(ti_bin, dtype=np.uint8)
 
     skeleton_points = np.column_stack(np.where(skeleton == 1))
@@ -165,7 +180,7 @@ def detect_hairs_from_ti(ti: np.ndarray, kernel_size: int = 5, lambda_: float = 
         if r > 0:
             cv2.circle(Gi_mask, (x, y), r, 1, -1)  # remplissage disque
 
-    # -- Étape 7 : Éliminer les régions internes à la peau : G_i = D \ Ω_oc --
+    #  Éliminer les régions internes à la peau : G_i = D \ Ω_oc
     Gi_mask = cv2.subtract(Gi_mask, omega_oc)
 
     # Format final en 0/255
@@ -173,26 +188,8 @@ def detect_hairs_from_ti(ti: np.ndarray, kernel_size: int = 5, lambda_: float = 
 
     return Gi_mask
 
-v = luminance(im1)
-t = genere_masque(v)
-print(len(t))
-# s'assurer que le dossier test existe (placé au même niveau que dataset)
-TEST_DIR = os.path.normpath(os.path.join(BASE_DIR,'test'))
-os.makedirs(TEST_DIR, exist_ok=True)
+h = detect_hairs_from_ti(t[100])
+chemin_open = os.path.join(DATASET_PATH2, "final.jpg")
+cv2.imwrite(chemin_open, h)
 
-
-# préparer l'image à écrire: convertir en uint8 si nécessaire
-t0 = detect_hairs_from_ti(t[200])
-
-if t0 is None:
-    raise ValueError('t[0] est None, impossible de sauvegarder')
-
-if t0.dtype == np.bool_:
-    t0 = (t0.astype(np.uint8) * 255)
-elif t0.dtype != np.uint8:
-    t0 = np.clip(t0, 0, 255).astype(np.uint8)
-
-out_path = os.path.join(TEST_DIR, 'image_coupé.png')
-ok = cv2.imwrite(out_path, t0)
-print(f"Écriture de {out_path} :", ok)
 
