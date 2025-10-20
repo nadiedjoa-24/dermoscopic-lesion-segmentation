@@ -3,24 +3,15 @@ import cv2
 from skimage.morphology import skeletonize
 from scipy.ndimage import label, find_objects
 from scipy.spatial.distance import pdist
+import matplotlib.pyplot as plt
 
 '''Je charge ici une image, en l'occurence ISIC_0000030.jpg'''
 import os
 
-# construire un chemin absolu vers le dossier dataset, basé sur ce fichier
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET_PATH = os.path.normpath(os.path.join(BASE_DIR,'..', 'dataset', 'melanoma' , 'ISIC_0000046.jpg'))
-DATASET_PATH2 = os.path.normpath(os.path.join(BASE_DIR, 'test'))
-im1 = cv2.imread(DATASET_PATH, cv2.IMREAD_COLOR)
-if im1 is not None:
-    im2 = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB)
-else:
-    im2 = None
+SAVEPATH = os.path.normpath(os.path.join(BASE_DIR,'test'))
 
-if im1 is None:
-    print("image pas chargée")
-else:
-    print(im1.shape[:2])
+# construire un chemin absolu vers le dossier dataset, basé sur ce fichier
 
 '''la fonction cadre noire permet d'enlever le cadre noir qui apparait autour d'une melanome 
 lorsqu'on le capture, permet de réduire le nombre de pixel noir et donc son impact sur l'algo utilisé'''
@@ -215,6 +206,7 @@ def filter_false_positives(M: np.ndarray,
 
     for label_id in range(1, num_labels):  # On ignore le label 0 (fond)
         component_mask = (labels == label_id).astype(np.uint8)
+        
 
         # Vérifier la taille
         if np.sum(component_mask) < min_component_size:
@@ -317,8 +309,7 @@ def remove_hairs_by_inpainting(image: np.ndarray,
 
     return image_clean
 
-v = luminance(im1)
-t = genere_masque(v)
+
 
 """t0 = t[200]
 cv2.imwrite(os.path.join(DATASET_PATH2, "masquet200.jpg"), t0)
@@ -332,7 +323,7 @@ cv2.imwrite(os.path.join(DATASET_PATH2, "fauxpositif.jpg"), Mf)"""
 
 
 
-# Étape 1 : Générer tous les masques G_i
+'''# Étape 1 : Générer tous les masques G_i
 G_list = []
 for i, ti in enumerate(t[190:210]):
     Gi = detect_hairs_from_ti(ti, kernel_size=5, lambda_=0.2)
@@ -346,9 +337,9 @@ for Gi in G_list:
 cv2.imwrite(os.path.join(DATASET_PATH2, "fusion.jpg"), M)
 
 Mf = filter_false_positives(M)
-cv2.imwrite(os.path.join(DATASET_PATH2, "masque_filtré_Mf.jpg"), Mf)
+cv2.imwrite(os.path.join(DATASET_PATH2, "masque_filtré_Mf.jpg"), Mf)"""
 
-"""# Sauvegarde (optionnel pour debug)
+# Sauvegarde (optionnel pour debug)
 cv2.imwrite(os.path.join(DATASET_PATH2, "masque_global_M.jpg"), M)
 
 # Étape 3 : Filtrage des faux positifs → M_f
@@ -357,5 +348,92 @@ cv2.imwrite(os.path.join(DATASET_PATH2, "masque_filtré_Mf.jpg"), Mf)
 
 # Étape 4 : Inpainting sur l’image originale
 image_sans_poils = remove_hairs_by_inpainting(im1, Mf, dilation_kernel_size=3, method="telea")
-cv2.imwrite(os.path.join(DATASET_PATH2, "image_sans_poils.jpg"), image_sans_poils)
-"""
+cv2.imwrite(os.path.join(DATASET_PATH2, "image_sans_poils.jpg"), image_sans_poils)'''
+
+
+if __name__ == '__main__':
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DATASET_PATH = os.path.normpath(os.path.join(BASE_DIR,'..', 'dataset', 'melanoma' , 'ISIC_0000140.jpg'))
+    im1 = cv2.imread(DATASET_PATH, cv2.IMREAD_COLOR)
+    if im1 is not None:
+        im2 = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB)
+    else:
+        im2 = None
+
+    SAVEPATH = os.path.normpath(os.path.join(BASE_DIR,'test'))
+
+
+
+    im_crop = cadre_noire(im1)
+
+    if im1 is None:
+        raise ValueError("im1 is None")
+    if im_crop is None:
+        raise ValueError("im_crop is None")
+
+
+    DATASET_PATH2 = os.path.normpath(os.path.join(BASE_DIR,'..', 'dataset', 'melanoma' , 'ISIC_0000046.jpg'))
+    im3 = cv2.imread(DATASET_PATH2, cv2.IMREAD_COLOR)
+    if im3 is not None:
+        im4 = cv2.cvtColor(im3, cv2.COLOR_BGR2RGB)
+    else:
+        im4 = None
+    
+    v = luminance(im3)
+    t = genere_masque(v)
+
+    t1 = t[200]
+
+    G_list = []
+    for i, ti in enumerate(t[195:205]):
+        Gi = detect_hairs_from_ti(ti, kernel_size=5, lambda_=0.2)
+        G_list.append(Gi)
+
+    
+
+    # Étape 2 : Fusionner tous les masques G_i → masque global M
+    M = np.zeros_like(G_list[0], dtype=np.uint8)
+    for Gi in G_list:
+        M = cv2.bitwise_or(M, Gi)
+
+    Mfiltré = filter_false_positives(M)
+
+    
+
+
+
+
+
+    # Convert BGR -> RGB pour l'affichage des images couleur
+    img1_rgb = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB) if im1 is not None else None
+    img_crop_rgb = cv2.cvtColor(im_crop, cv2.COLOR_BGR2RGB) if im_crop is not None else None
+
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+
+    # Ligne du haut : images liées au crop
+    axes[0, 0].imshow(img1_rgb)
+    axes[0, 0].set_title("Original (im1)")
+    axes[0, 0].axis("off")
+
+    axes[0, 1].imshow(img_crop_rgb)
+    axes[0, 1].set_title("Cropped (im_crop)")
+    axes[0, 1].axis("off")
+
+    # Troisième emplacement en haut vide
+    axes[0, 2].axis("off")
+
+    # Ligne du bas : masks liés aux hair detection
+    axes[1, 0].imshow(im4, cmap="gray", vmin=0, vmax=255)
+    axes[1, 0].set_title("image originale im3")
+    axes[1, 0].axis("off")
+
+    axes[1, 1].imshow(M, cmap="gray", vmin=0, vmax=255)
+    axes[1, 1].set_title("Masque combiné")
+    axes[1, 1].axis("off")
+
+    axes[1, 2].imshow(Mfiltré, cmap="gray", vmin=0, vmax=255)
+    axes[1, 2].set_title("M — filtered hair mask (Mf)")
+    axes[1, 2].axis("off")
+
+    plt.tight_layout()
+    plt.show()
