@@ -35,7 +35,7 @@ def cadre_noire(img):
     print(pixel_noir)
 
 
-    cv2.imwrite("masquenoir.jpg", pixel_noir.astype(np.uint8))
+
     #Image/masque binaire, compare chaque pixel à 20
 
     def cherche_retrait_indes(mask_noir = pixel_noir, axis=0):
