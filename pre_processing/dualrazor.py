@@ -10,15 +10,18 @@ from skimage import io
 
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-IMG_PATH = os.path.normpath(os.path.join(BASEDIR,'..','dataset','melanoma','ISIC_0000140.jpg'))
+IMG_PATH = os.path.normpath(os.path.join(BASEDIR,'..','dataset','melanoma','ISIC_0000146.jpg'))
 SAVE_PATH = os.path.normpath(os.path.join(BASEDIR, 'test'))
 
 # ISIC_0000140.jpg ; ISIC_0000145.jpg ; ISIC_0000150.jpg ; ISIC_0000146.jpg
 
 im_orig = io.imread(IMG_PATH)
 
+
 im1 = cv2.imread(IMG_PATH, cv2.IMREAD_COLOR)
 im2 = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB)
+
+im3 = cv2.GaussianBlur(im2, (5,5), 1)
 
 #je definis les élements structurels que j'vais utiliser
 
@@ -33,9 +36,9 @@ M = [Ma, Mb, Mc]
 
 #j'extraie les canaux R,G,B de mon image
 
-R = im2[:,:,0]
-G = im2[:,:,1]
-B = im2[:,:,2]
+R = im3[:,:,0]
+G = im3[:,:,1]
+B = im3[:,:,2]
 
 
 def compute_mask(canal, struct, thresh):
@@ -50,7 +53,7 @@ Mg = compute_mask(G, M, 250)
 Mb = compute_mask(B, M, 250)
 Mfinal = Mr + Mg + Mb
 
-#FONCTION PRISE SUR INTERNET 
+# 
 def interpolate_missing_pixels(
         image: np.ndarray,
         mask: np.ndarray,
