@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import os
-from skimage import morphology 
+from skimage import morphology, filters 
 from scipy import interpolate
 import skimage
 from skimage import io
@@ -10,7 +10,7 @@ from skimage import io
 
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-IMG_PATH = os.path.normpath(os.path.join(BASEDIR,'..','dataset','melanoma','ISIC_0000146.jpg'))
+IMG_PATH = os.path.normpath(os.path.join(BASEDIR,'..','dataset','melanoma','ISIC_0000146 .jpg'))
 SAVE_PATH = os.path.normpath(os.path.join(BASEDIR, 'test'))
 
 # ISIC_0000140.jpg ; ISIC_0000145.jpg ; ISIC_0000150.jpg ; ISIC_0000146.jpg
