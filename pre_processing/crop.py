@@ -1,8 +1,9 @@
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 
 '''Je charge ici une image, en l'occurence ISIC_0000030.jpg'''
-'''import os
+import os
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 IMG_PATH = os.path.normpath(os.path.join(BASEDIR,'..','dataset','melanoma','ISIC_0000049.jpg'))
@@ -12,7 +13,7 @@ im1 = cv2.imread(IMG_PATH, cv2.IMREAD_COLOR)
 if im1 is not None:
     im2 = cv2.cvtColor(im1, cv2.COLOR_BGR2RGB)
 else:
-    im2 = None'''
+    im2 = None
 
 
 def isolate_dermato_circle_adaptive(
@@ -86,10 +87,10 @@ def isolate_dermato_circle_adaptive(
     return output, circle_mask
 
 
+img_round, _ = isolate_dermato_circle_adaptive(im2)
 
 
-
-'''plt.figure(figsize=(15, 10))
+plt.figure(figsize=(15, 10))
 
 plt.subplot(1, 2, 1)
 plt.imshow(im2)
@@ -100,4 +101,4 @@ plt.imshow(img_round)
 plt.title('Image Recadrée')
 plt.axis('off')
 plt.tight_layout()
-plt.show()'''
+plt.show()
