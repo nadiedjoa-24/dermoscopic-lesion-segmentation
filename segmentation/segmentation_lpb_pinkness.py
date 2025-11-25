@@ -251,7 +251,7 @@ def morphological_postprocessing(mask: np.ndarray, disk_size: int = 3) -> np.nda
     Applique un post-traitement morphologique :
     - Ouverture (érosion + dilatation)
     - Remplissage des trous
-    - Conservation de la plus grande composante connexe
+    - Conservation de TOUTES les composantes connexes (pas seulement la plus grande)
     """
     from skimage.morphology import disk, opening, remove_small_holes
     from skimage.measure import label
@@ -264,20 +264,9 @@ def morphological_postprocessing(mask: np.ndarray, disk_size: int = 3) -> np.nda
     # Remplissage des trous
     filled = binary_fill_holes(opened).astype(np.uint8)
     
-    # Garder seulement la plus grande composante connexe
-    labeled = label(filled)
-    if labeled.max() == 0:
-        return filled
-    
-    # Compter les pixels de chaque composante
-    component_sizes = np.bincount(labeled.ravel())
-    component_sizes[0] = 0  # Ignorer le background
-    
-    # Garder la plus grande composante
-    largest_component = np.argmax(component_sizes)
-    final_mask = (labeled == largest_component).astype(np.uint8)
-    
-    return final_mask
+    # MODIFICATION: Garder TOUTES les composantes connexes
+    # au lieu de seulement la plus grande
+    return filled
 
 
 # FONCTION PRINCIPALE DE SEGMENTATION LBP CLUSTERING
