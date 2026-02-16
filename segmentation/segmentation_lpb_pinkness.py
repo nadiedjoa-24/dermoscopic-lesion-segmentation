@@ -356,7 +356,7 @@ def lbp_clustering_segmentation(img_rgb: np.ndarray,
     return final_mask, intermediate_results
 
 
-# ========== MÉTRIQUES D'ÉVALUATION ==========
+# MÉTRIQUES D'ÉVALUATION
 
 def compute_segmentation_metrics(predicted_mask: np.ndarray, ground_truth_mask: np.ndarray) -> dict:
     """

@@ -9,7 +9,6 @@ def srm_segment(image, Q=32, gaussian_sigma=1.0):
     """Segment an RGB or grayscale image with Statistical Region Merging (SRM).
 
     Parameters
-    ----------
     image : (H, W, 3) or (H, W) ndarray
         Input image. Can be uint8 or float; will be converted internally.
     Q : float
@@ -18,7 +17,6 @@ def srm_segment(image, Q=32, gaussian_sigma=1.0):
         Sigma of the Gaussian pre-smoothing (in pixels).
 
     Returns
-    -------
     labels : (H, W) ndarray of int
         Label map (0..K-1) of the final regions.
     seg_image : (H, W, 3) ndarray of float
