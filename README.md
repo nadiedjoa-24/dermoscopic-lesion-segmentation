@@ -49,8 +49,8 @@ corner from a dark lesion, so the lit disc is detected and the outside is
 whitened and cropped.
 
 **Hair removal.** Following DullRazor, hairs are found by grayscale closing with
-elongated structuring elements — a closing with an element wider than a hair
-erases it, so the difference reveals it — then inpainted from surrounding skin.
+elongated structuring elements, then inpainted from surrounding skin. A closing
+with an element wider than a hair erases it, so the difference reveals it.
 Images with little hair are left untouched, since inpainting a clean image only
 blurs the border being sought.
 
@@ -102,9 +102,9 @@ and one report page per image in [`reports/segmentation_report.pdf`](reports/seg
   together. It barely helps LBP (+1 point), whose masks are already connected,
   and on nevi it actively hurts it (0.893 down to 0.872). Convexity is an
   assumption about lesion shape, and a concave border breaks it.
-- **Melanomas are harder than nevi** for all three methods — the clinically
-  expected direction, since irregular, poorly defined borders are exactly what
-  the ABCD rule looks for.
+- **Melanomas are harder than nevi** for all three methods. That is the
+  clinically expected direction, since irregular, poorly defined borders are
+  exactly what the ABCD rule looks for.
 
 ## Installation
 
@@ -199,7 +199,7 @@ generated from the benchmark CSV, so the report and the code cannot disagree.
 ## Authors
 
 Théophile Nadiedjoa ([@nadiedjoa-24](https://github.com/nadiedjoa-24)) and
-Agshay Nadanakumar ([@agshayn](https://github.com/agshayn)) — Télécom Paris,
+Agshay Nadanakumar ([@agshayn](https://github.com/agshayn)), Télécom Paris,
 2025.
 
 Licensed under the [MIT License](LICENSE).
