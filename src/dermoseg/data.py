@@ -17,8 +17,25 @@ from pathlib import Path
 import numpy as np
 from skimage import io
 
-DATA_ROOT = Path(__file__).resolve().parents[2] / "data"
 CATEGORIES = ("melanoma", "nevus")
+
+
+def _find_data_root() -> Path:
+    """Locate the dataset folder.
+
+    Walking up from this file finds ``data/`` in a clone of the repository,
+    whether or not the package was installed. Once ``dermoseg`` is installed
+    somewhere else entirely there is no such folder to find, so the fallback is
+    a plain relative path and the caller passes ``root`` explicitly.
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "data"
+        if (candidate / CATEGORIES[0]).is_dir():
+            return candidate
+    return Path("data")
+
+
+DATA_ROOT = _find_data_root()
 
 
 @dataclass(frozen=True)

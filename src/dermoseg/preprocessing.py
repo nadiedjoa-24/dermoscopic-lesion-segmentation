@@ -89,25 +89,53 @@ def isolate_dermoscope_circle(
     return output, disc
 
 
+def _diagonal_footprint(length: int, width: int, *, anti: bool = False) -> np.ndarray:
+    """A diagonal-line structuring element, the counterpart of the axis-aligned rectangles.
+
+    Built from the diagonal of a square array sized so the diagonal's own
+    length matches ``length``, then thickened to ``width`` by dilation.
+    ``anti`` flips it to the other diagonal (135 degrees instead of 45).
+    """
+    side = max(int(round(length / np.sqrt(2))), 1)
+    line = np.eye(side, dtype=bool)
+    if anti:
+        line = np.fliplr(line)
+    if width > 1:
+        line = morphology.binary_dilation(line, morphology.disk(width // 2))
+    return line
+
+
 def _directional_closing_max(channel: np.ndarray) -> np.ndarray:
-    """Maximum of two grayscale closings, along rows and along columns.
+    """Maximum of four grayscale closings, at 0, 45, 90 and 135 degrees.
 
     Hairs are thin and elongated, so a closing with a structuring element longer
-    than the hair width erases them; the maximum over a horizontal and a vertical
-    element catches hairs at any orientation.
+    than the hair width erases them. A hair running horizontally or vertically
+    is caught by the matching axis-aligned element, but one running diagonally
+    is caught well by neither: it benefits from a horizontal or vertical
+    element only through the width margin, not the length, the same way a
+    horizontal element barely helps against a vertical hair. The two diagonal
+    elements close that gap, matching the range of orientations DullRazor
+    itself uses.
     """
     horizontal = np.ones((HAIR_STRUCTURE_LENGTH, HAIR_STRUCTURE_WIDTH), dtype=bool)
     vertical = np.ones((HAIR_STRUCTURE_WIDTH, HAIR_STRUCTURE_LENGTH), dtype=bool)
+    diagonal = _diagonal_footprint(HAIR_STRUCTURE_LENGTH, HAIR_STRUCTURE_WIDTH)
+    anti_diagonal = _diagonal_footprint(HAIR_STRUCTURE_LENGTH, HAIR_STRUCTURE_WIDTH, anti=True)
 
     closed_horizontal = morphology.closing(channel, footprint=horizontal)
     closed_vertical = morphology.closing(channel, footprint=vertical)
+    closed_diagonal = morphology.closing(channel, footprint=diagonal)
+    closed_anti_diagonal = morphology.closing(channel, footprint=anti_diagonal)
 
     response = np.zeros(channel.shape)
     n_rows, n_columns = channel.shape
     for row in range(n_rows):
         for column in range(n_columns):
             response[row, column] = max(
-                closed_horizontal[row, column], closed_vertical[row, column]
+                closed_horizontal[row, column],
+                closed_vertical[row, column],
+                closed_diagonal[row, column],
+                closed_anti_diagonal[row, column],
             )
 
     return response
