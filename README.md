@@ -140,7 +140,12 @@ python scripts/run_benchmark.py
 python scripts/segment_image.py data/melanoma/ISIC_0000140.jpg
 ```
 
-Every method is seeded, so the numbers above reproduce exactly.
+LBP and SRM are seeded and reproduce exactly. Otsu's Chan-Vese refinement
+(`skimage.segmentation.morphological_chan_vese`) has a small run-to-run
+non-determinism of its own, unrelated to this codebase: it can flip a
+handful of boundary pixels between runs on the same input, moving its Dice
+score by up to about 0.0002. It never changes a number at the precision
+reported here.
 
 ## Tests
 
@@ -149,7 +154,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Twenty-five tests, under two seconds, on synthetic arrays only: no image is
+Thirty-four tests, under two seconds, on synthetic arrays only: no image is
 read and no method is run. They pin the parts that are heuristics rather than
 mathematics, because those are what break quietly:
 
@@ -159,10 +164,13 @@ mathematics, because those are what break quietly:
   filling. On an inverted mask the lesion is the hole, so the other order
   returns an empty mask. The test builds that exact case and asserts both.
 - **The convex hull's satellite rule**: a speck in a corner must not stretch
-  the hull, a fragment beside the lesion must be swallowed by it.
+  the hull, and its reach cannot exceed the image regardless of the lesion's
+  or the satellite's own size.
 - **The LBP operator** against patterns built by hand, since it is written from
   the paper and packs its bits clockwise from north. scikit-image starts
   elsewhere and turns the other way, so its codes are not a usable reference.
+- **The diagonal hair-removal footprints**, both their geometry and that all
+  four orientations actually enter the pixelwise maximum.
 
 The narrative walkthrough is in
 [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb),
@@ -197,7 +205,8 @@ src/dermoseg/
     ├── lbp.py             LBP clustering with the pinkness criterion
     └── region_merging.py  SRM (and Felzenszwalb) + region selection
 
-tests/       25 unit tests on the metric, the guards and the LBP operator
+tests/       34 unit tests on the metric, the guards, the LBP operator
+             and the preprocessing helpers
 scripts/     run_benchmark.py, segment_image.py
 notebooks/   01_method_comparison.ipynb
 data/        20 ISIC images with ground-truth masks
