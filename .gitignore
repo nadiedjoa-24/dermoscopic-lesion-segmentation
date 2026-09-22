@@ -18,13 +18,11 @@ Thumbs.db
 docs/notebook_export.pdf
 docs/notebook_export.html
 
-# LaTeX source of docs/research_paper.pdf, kept local: the compiled PDF is
-# what the repository publishes. Rebuild with:
+# LaTeX build artefacts for docs/research_paper.pdf. The source, the table
+# generator and the generated tables are tracked, so the PDF can be rebuilt
+# straight from the repo:
 #   python docs/make_results_table.py
 #   cd docs && pdflatex research_paper.tex
-docs/research_paper.tex
-docs/results_tables.tex
-docs/make_results_table.py
 docs/*.aux
 docs/*.log
 docs/*.out

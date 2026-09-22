@@ -19,10 +19,10 @@ from .segmentation import lbp, otsu, region_merging
 # Method name -> callable taking a preprocessed RGB image and returning a
 # SegmentationResult. The parameters are the ones tuned during the project.
 METHODS = {
-    "Otsu": lambda image, valid: otsu.segment(image),
+    "Otsu": lambda image, valid: otsu.segment(image, valid_mask=valid),
     "LBP": lambda image, valid: lbp.segment(image, sigma=3.0, valid_mask=valid),
     "SRM": lambda image, valid: region_merging.segment(
-        image, scale=25.0, gaussian_sigma=2.0, backend="srm"
+        image, scale=25.0, gaussian_sigma=2.0, backend="srm", valid_mask=valid
     ),
 }
 

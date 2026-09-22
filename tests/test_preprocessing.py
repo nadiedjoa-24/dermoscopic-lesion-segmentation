@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from dermoseg import preprocessing
 from dermoseg.preprocessing import (
     _diagonal_footprint,
     _directional_closing_max,
@@ -65,3 +66,39 @@ def test_isolate_dermoscope_circle_leaves_unframed_images_untouched():
     output, mask = isolate_dermoscope_circle(image)
     assert output.shape == image.shape
     assert (mask > 0).all()
+
+
+def test_remove_hair_coverage_is_a_pixel_fraction_not_a_mean_intensity(monkeypatch):
+    """Regression guard on the coverage gate.
+
+    It must count pixels whose response clears ``HAIR_RESPONSE_THRESHOLD``
+    and measure the fraction of the disc they cover, not sum the raw,
+    unthresholded intensity difference: that sum lives on a completely
+    different scale and barely tracks how much hair is actually present (a
+    uniform, sub-threshold difference across the whole image summed to more
+    than a real, dense hair patch ever could).
+    """
+    size = 100
+    image = np.full((size, size, 3), 150, dtype=np.uint8)
+    disc_mask = np.ones((size, size), dtype=bool)
+    hair_masks = np.zeros((size, size, 3), dtype=bool)
+
+    calls = []
+    monkeypatch.setattr(
+        preprocessing, "_inpaint_channel", lambda channel, missing: calls.append(1) or channel
+    )
+
+    # Every pixel differs by 30, under the 40-response threshold: no pixel is
+    # hair, so the correct covered fraction is exactly zero.
+    faint_response = np.full((size, size), 150.0 - 30.0)
+    monkeypatch.setattr(preprocessing, "detect_hair", lambda img: (hair_masks, faint_response))
+    preprocessing.remove_hair(image, disc_mask)
+    assert calls == []
+
+    # A dense, above-threshold patch covering most of the image: real hair,
+    # and it must survive erosion above the 20% coverage threshold.
+    thick_response = np.full((size, size), 150.0)
+    thick_response[6:-6, 6:-6] = 150.0 - 60.0
+    monkeypatch.setattr(preprocessing, "detect_hair", lambda img: (hair_masks, thick_response))
+    preprocessing.remove_hair(image, disc_mask)
+    assert len(calls) == 3  # once per RGB channel

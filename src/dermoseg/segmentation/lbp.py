@@ -21,10 +21,9 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from skimage import morphology
 from skimage.color import rgb2lab
-from skimage.transform import resize
 from sklearn.cluster import KMeans
 
-from .base import CALC_SIZE, SegmentationResult, downscale, upscale_mask
+from .base import CALC_SIZE, SegmentationResult, downscale, downscale_mask, upscale_mask
 
 RANDOM_STATE = 42
 # BT.601 luminance weights.
@@ -112,10 +111,7 @@ def segment(
     if valid_mask is None:
         valid_small = np.ones(CALC_SIZE, dtype=bool)
     else:
-        valid_small = (
-            resize(valid_mask.astype(float), CALC_SIZE, order=0, mode="edge", anti_aliasing=False)
-            > 0.5
-        )
+        valid_small = downscale_mask(valid_mask)
 
     luminance = luminance_bt601(small)
     codes = local_binary_pattern_p8r1(luminance)

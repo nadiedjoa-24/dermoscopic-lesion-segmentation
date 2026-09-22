@@ -32,6 +32,13 @@ def downscale(image: np.ndarray) -> np.ndarray:
     return resize(image, CALC_SIZE, anti_aliasing=True)
 
 
+def downscale_mask(mask: np.ndarray) -> np.ndarray:
+    """Resize a boolean mask to :data:`CALC_SIZE`, keeping it strictly binary."""
+    return (
+        resize(mask.astype(float), CALC_SIZE, order=0, mode="edge", anti_aliasing=False) > 0.5
+    )
+
+
 def upscale_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
     """Resize a binary mask back to ``shape`` without introducing new values."""
     restored = resize(mask.astype(float), shape, order=0, mode="edge", anti_aliasing=False)

@@ -30,7 +30,7 @@ from skimage.filters import gaussian
 from skimage.measure import regionprops
 from skimage.segmentation import felzenszwalb
 
-from .base import CALC_SIZE, SegmentationResult, downscale, upscale_mask
+from .base import CALC_SIZE, SegmentationResult, downscale, downscale_mask, upscale_mask
 
 # Region-selection weights: contrast dominates, centrality and colour assist.
 WEIGHT_CONTRAST = 0.5
@@ -119,11 +119,16 @@ def felzenszwalb_regions(image: np.ndarray, *, scale: float = 32.0) -> np.ndarra
     return felzenszwalb(image, scale=max(10, scale * 5), sigma=0, min_size=max(20, int(scale * 2)))
 
 
-def score_regions(labels: np.ndarray, image: np.ndarray) -> tuple[list[dict], np.ndarray]:
+def score_regions(
+    labels: np.ndarray, image: np.ndarray, valid: np.ndarray | None = None
+) -> tuple[list[dict], np.ndarray]:
     """Score every region on darkness, centrality and saturation.
 
     Skin reference values are read off a one-pixel band along the image border,
-    which after frame removal and cropping is almost entirely healthy skin.
+    which after frame removal and cropping is almost entirely healthy skin,
+    except for the crop's corners: a circular disc inscribed in a rectangular
+    crop still leaves a sliver of whitened frame in each corner, right on that
+    border. ``valid`` drops those pixels from the reference when it is given.
 
     Returns:
         The per-region scores, and a score map for visualisation.
@@ -137,7 +142,11 @@ def score_regions(labels: np.ndarray, image: np.ndarray) -> tuple[list[dict], np
         saturation = np.zeros_like(intensity)
 
     def border_values(array: np.ndarray) -> np.ndarray:
-        return np.concatenate([array[0, :], array[-1, :], array[:, 0], array[:, -1]])
+        band = np.concatenate([array[0, :], array[-1, :], array[:, 0], array[:, -1]])
+        if valid is None:
+            return band
+        valid_band = np.concatenate([valid[0, :], valid[-1, :], valid[:, 0], valid[:, -1]])
+        return band[valid_band] if valid_band.any() else band
 
     skin_intensity = np.percentile(border_values(intensity), SKIN_PERCENTILE)
     skin_saturation = np.median(border_values(saturation))
@@ -212,6 +221,7 @@ def segment(
     gaussian_sigma: float = 1.0,
     backend: str = "srm",
     disk_size: int = 3,
+    valid_mask: np.ndarray | None = None,
 ) -> SegmentationResult:
     """Segment a preprocessed RGB image by over-segmentation and region selection.
 
@@ -221,12 +231,16 @@ def segment(
         gaussian_sigma: Pre-smoothing, 0 to disable.
         backend: ``"srm"`` for Statistical Region Merging, ``"felzenszwalb"`` otherwise.
         disk_size: Structuring element radius for the closing.
+        valid_mask: Boolean mask of pixels carrying real image data, used to
+            keep whitened frame corners out of the border-sampled skin
+            reference in :func:`score_regions`.
     """
     if backend not in {"srm", "felzenszwalb"}:
         raise ValueError(f"unknown backend {backend!r}, expected 'srm' or 'felzenszwalb'")
 
     original_shape = image.shape[:2]
     small = downscale(image)
+    valid_small = None if valid_mask is None else downscale_mask(valid_mask)
 
     if backend == "srm":
         # Smooth the grayscale, not the colour image: a scalar sigma on an
@@ -240,7 +254,7 @@ def segment(
         smoothed = gaussian_filter(small, sigma=gaussian_sigma) if gaussian_sigma else small
         labels = felzenszwalb_regions(smoothed, scale=scale)
 
-    scores, score_map = score_regions(labels, small)
+    scores, score_map = score_regions(labels, small, valid_small)
     selected = select_lesion_regions(labels, scores)
     closed = morphology.binary_closing(selected, morphology.disk(disk_size))
 

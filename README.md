@@ -79,32 +79,32 @@ Mean Dice over the twenty images, computed by `scripts/run_benchmark.py`:
 
 | Method | Dice (mask) | Dice (+ convex hull) |
 |---|---|---|
-| Multi-channel Otsu | 0.838 | 0.888 |
-| LBP Clustering | **0.845** | **0.900** |
-| Statistical Region Merging | 0.824 | 0.868 |
+| Multi-channel Otsu | 0.830 | 0.871 |
+| LBP Clustering | **0.841** | **0.898** |
+| Statistical Region Merging | 0.804 | 0.852 |
 
 Per category:
 
 | Method | Melanoma | Melanoma + hull | Nevus | Nevus + hull |
 |---|---|---|---|---|
-| Multi-channel Otsu | 0.821 | 0.872 | 0.855 | 0.904 |
-| LBP Clustering | 0.844 | 0.892 | 0.847 | 0.908 |
-| Statistical Region Merging | 0.794 | 0.848 | 0.853 | 0.889 |
+| Multi-channel Otsu | 0.819 | 0.873 | 0.841 | 0.870 |
+| LBP Clustering | 0.842 | 0.893 | 0.840 | 0.903 |
+| Statistical Region Merging | 0.766 | 0.824 | 0.841 | 0.881 |
 
 Per-image scores are in [`reports/per_image_results.csv`](reports/per_image_results.csv),
 and one report page per image in [`reports/segmentation_report.pdf`](reports/segmentation_report.pdf).
 
 **What the numbers say.**
 
-- **LBP Clustering produces the best raw masks** (0.845), narrowly ahead of
-  Otsu (0.838) and SRM (0.824). With the convex hull applied, LBP is also the
-  best method overall (0.900).
+- **LBP Clustering produces the best raw masks** (0.841), narrowly ahead of
+  Otsu (0.830) and SRM (0.804). With the convex hull applied, LBP is also the
+  best method overall (0.898).
 - **The convex hull helps all three methods by a similar amount** (roughly
-  +0.045 to +0.054 Dice on average), including LBP: its masks are not as
+  +0.041 to +0.057 Dice on average), including LBP: its masks are not as
   reliably already-connected as we first assumed. The exception is a handful
   of images where the raw mask was already excellent (Dice above 0.88): on
-  those, adding convexity is pure loss, costing LBP up to 0.03 Dice on
-  `ISIC_0000001`, `ISIC_0000145`, `ISIC_0000080` and `ISIC_0000045`.
+  those, adding convexity is pure loss, costing LBP up to 0.027 Dice on
+  `ISIC_0000001`, `ISIC_0000145` and `ISIC_0000080`.
   Convexity is an assumption about lesion shape, not a guarantee of improvement.
 - **Melanomas are harder than nevi** for all three methods. That is the
   clinically expected direction, since irregular, poorly defined borders are
@@ -115,7 +115,12 @@ and one report page per image in [`reports/segmentation_report.pdf`](reports/seg
   documentation claimed. All five are fixed here and detailed, with concrete
   before/after examples, in [`docs/research_paper.pdf`](docs/research_paper.pdf)
   and [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb).
-  The numbers above are measured after the fixes.
+  A later pass found two more of the same kind: the hair-removal coverage gate
+  compared a raw intensity sum against a fraction threshold instead of
+  counting pixels, and only LBP's clustering ignored the whitened frame
+  corners in its statistics; Otsu's per-channel threshold and SRM's
+  border-sampled skin reference now do too. The numbers above are measured
+  after every fix.
 
 ## Installation
 
@@ -126,8 +131,7 @@ pip install -e .
 ```
 
 That installs `dermoseg` with its dependencies, so the package imports from
-anywhere. To install the dependencies alone, use `pip install -r
-requirements.txt`: the scripts and the notebook add `src/` to the path
+anywhere. The scripts and the notebook also add `src/` to the path
 themselves, so they run from a bare clone either way.
 
 ## Reproducing the results
@@ -154,8 +158,10 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Thirty-four tests, under two seconds, on synthetic arrays only: no image is
-read and no method is run. They pin the parts that are heuristics rather than
+Forty-eight tests, in a few seconds, almost entirely on synthetic in-memory
+arrays: no segmentation method is run end-to-end. The exception is `data.py`'s
+four tests, which write and read back a handful of tiny synthetic files rather
+than the real dataset. They pin the parts that are heuristics rather than
 mathematics, because those are what break quietly:
 
 - **Dice** on its stated edge cases, including two empty masks scoring 1.0 and
@@ -171,6 +177,14 @@ mathematics, because those are what break quietly:
   elsewhere and turns the other way, so its codes are not a usable reference.
 - **The diagonal hair-removal footprints**, both their geometry and that all
   four orientations actually enter the pixelwise maximum.
+- **The hair-removal coverage gate**, which has to threshold the response into
+  hair/not-hair pixels before measuring the fraction of the image they cover,
+  not sum the raw intensity difference: that sum lives on a different scale
+  and barely tracks how much hair is actually present.
+- **Otsu's per-channel threshold and SRM's border-sampled skin reference**,
+  which must ignore the whitened frame corners the same way LBP's clustering
+  already did, instead of letting that synthetic cluster pull the statistic
+  away from the real lesion/skin boundary.
 
 The narrative walkthrough is in
 [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb),
@@ -185,7 +199,7 @@ from dermoseg.pipeline import run_all_methods
 sample = load_sample("data/melanoma/ISIC_0000140.jpg")
 outcome = run_all_methods(sample)
 
-print(outcome.scores)   # {'Otsu': 0.911, 'Otsu_Hull': 0.930, 'LBP': 0.915, ...}
+print(outcome.scores)   # {'Otsu': 0.909, 'Otsu_Hull': 0.930, 'LBP': 0.911, ...}
 print(outcome.masks["LBP"].shape)
 ```
 
@@ -205,13 +219,13 @@ src/dermoseg/
     ├── lbp.py             LBP clustering with the pinkness criterion
     └── region_merging.py  SRM (and Felzenszwalb) + region selection
 
-tests/       34 unit tests on the metric, the guards, the LBP operator
-             and the preprocessing helpers
+tests/       48 unit tests on the metric, the guards, the LBP operator,
+             the preprocessing helpers and the three segmenters' scaling code
 scripts/     run_benchmark.py, segment_image.py
 notebooks/   01_method_comparison.ipynb
 data/        20 ISIC images with ground-truth masks
 reports/     benchmark outputs and figures
-docs/        research_paper.pdf (+ LaTeX source), references.md
+docs/        research_paper.pdf (+ LaTeX source and table generator), references.md
 pyproject.toml
 ```
 
@@ -230,7 +244,7 @@ Stated plainly, because they bound what these numbers mean:
 - **The inversion guard is a rescue, not a fix.** It flips masks that covered
   more than 60% of the disc, which recovers a failed cluster choice rather than
   preventing it.
-- **Low-contrast lesions defeat all three methods.** ISIC_0000030 and
+- **Low-contrast lesions defeat all three methods.** ISIC_0000024 and
   ISIC_0000049 score below 0.70 on their raw masks: no intensity or texture cue
   separates lesion from skin. These are the cases where a learned model would
   win, and they mark the honest limit of this approach.

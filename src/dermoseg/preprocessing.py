@@ -127,18 +127,9 @@ def _directional_closing_max(channel: np.ndarray) -> np.ndarray:
     closed_diagonal = morphology.closing(channel, footprint=diagonal)
     closed_anti_diagonal = morphology.closing(channel, footprint=anti_diagonal)
 
-    response = np.zeros(channel.shape)
-    n_rows, n_columns = channel.shape
-    for row in range(n_rows):
-        for column in range(n_columns):
-            response[row, column] = max(
-                closed_horizontal[row, column],
-                closed_vertical[row, column],
-                closed_diagonal[row, column],
-                closed_anti_diagonal[row, column],
-            )
-
-    return response
+    return np.maximum.reduce(
+        [closed_horizontal, closed_vertical, closed_diagonal, closed_anti_diagonal]
+    )
 
 
 def detect_hair(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -191,10 +182,11 @@ def remove_hair(image: np.ndarray, disc_mask: np.ndarray) -> np.ndarray:
     """
     hair_masks, red_response = detect_hair(image)
 
-    # Erosion keeps only responses thick enough to be a hair rather than noise.
-    coverage = morphology.erosion(
-        np.abs(image[..., 0].astype(float) - red_response), footprint=morphology.disk(12)
-    )
+    # Threshold the red channel's response into a hair/not-hair pixel map, then
+    # erode it so a lone thick blob outweighs many thin noise specks, and
+    # measure the fraction of the valid area it covers.
+    red_hair_pixels = np.abs(image[..., 0].astype(float) - red_response) > HAIR_RESPONSE_THRESHOLD
+    coverage = morphology.erosion(red_hair_pixels, footprint=morphology.disk(12))
     if coverage.sum() / max(disc_mask.sum(), 1) < HAIR_COVERAGE_THRESHOLD:
         return image
 

@@ -1,4 +1,4 @@
-"""Segmentation quality metrics."""
+"""Segmentation quality metric."""
 
 from __future__ import annotations
 

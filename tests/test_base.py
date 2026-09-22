@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from dermoseg.segmentation.base import CALC_SIZE, downscale, upscale_mask
+from dermoseg.segmentation.base import CALC_SIZE, downscale, downscale_mask, upscale_mask
 
 
 def test_downscale_normalises_to_the_calc_size():
@@ -20,3 +20,12 @@ def test_upscale_keeps_a_mask_binary():
     assert restored.shape == (500, 700)
     assert set(np.unique(restored)) <= {0, 1}
     assert abs(restored.mean() - mask.mean()) < 0.01
+
+
+def test_downscale_mask_stays_binary_and_matches_calc_size():
+    mask = np.zeros((500, 700), dtype=bool)
+    mask[100:400, 100:400] = True
+    small = downscale_mask(mask)
+    assert small.shape == CALC_SIZE
+    assert small.dtype == np.bool_
+    assert abs(small.mean() - mask.mean()) < 0.01
