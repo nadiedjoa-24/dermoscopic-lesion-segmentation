@@ -55,7 +55,7 @@ def run(data_root: Path, reports: Path) -> pd.DataFrame:
 
             figure = plot_comparison(
                 outcome.preprocessed,
-                sample.ground_truth,
+                outcome.ground_truth,
                 outcome.masks,
                 hulls=outcome.hulls,
                 scores=outcome.scores,

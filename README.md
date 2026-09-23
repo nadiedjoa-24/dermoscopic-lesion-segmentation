@@ -79,36 +79,38 @@ Mean Dice over the twenty images, computed by `scripts/run_benchmark.py`:
 
 | Method | Dice (mask) | Dice (+ convex hull) |
 |---|---|---|
-| Multi-channel Otsu | 0.838 | 0.890 |
-| LBP Clustering | **0.844** | **0.900** |
-| Statistical Region Merging | 0.826 | 0.872 |
+| Multi-channel Otsu | 0.832 | 0.887 |
+| LBP Clustering | **0.841** | **0.901** |
+| Statistical Region Merging | 0.820 | 0.869 |
 
 Per category:
 
 | Method | Melanoma | Melanoma + hull | Nevus | Nevus + hull |
 |---|---|---|---|---|
-| Multi-channel Otsu | 0.820 | 0.873 | 0.856 | 0.907 |
-| LBP Clustering | 0.844 | 0.893 | 0.844 | 0.907 |
-| Statistical Region Merging | 0.795 | 0.850 | 0.856 | 0.893 |
+| Multi-channel Otsu | 0.815 | 0.872 | 0.849 | 0.902 |
+| LBP Clustering | 0.842 | 0.895 | 0.841 | 0.908 |
+| Statistical Region Merging | 0.790 | 0.849 | 0.850 | 0.888 |
 
 Per-image scores are in [`reports/per_image_results.csv`](reports/per_image_results.csv),
 and one report page per image in [`reports/segmentation_report.pdf`](reports/segmentation_report.pdf).
 
 **What the numbers say.**
 
-- **LBP Clustering produces the best raw masks** (0.844), narrowly ahead of
-  Otsu (0.838) and SRM (0.826). With the convex hull applied, LBP is also the
-  best method overall (0.900).
+- **LBP Clustering produces the best raw masks** (0.841), narrowly ahead of
+  Otsu (0.832) and SRM (0.820). With the convex hull applied, LBP is also the
+  best method overall (0.901).
 - **The convex hull helps all three methods by a similar amount** (roughly
-  +0.046 to +0.056 Dice on average), including LBP: its masks are not as
+  +0.049 to +0.060 Dice on average), including LBP: its masks are not as
   reliably already-connected as we first assumed. The exception is a handful
   of images where the raw mask was already excellent (Dice above 0.88): on
   those, adding convexity is pure loss, costing LBP up to 0.027 Dice on
   `ISIC_0000001`, `ISIC_0000145` and `ISIC_0000080`.
   Convexity is an assumption about lesion shape, not a guarantee of improvement.
-- **Melanomas are harder than nevi** for all three methods. That is the
-  clinically expected direction, since irregular, poorly defined borders are
-  exactly what the ABCD rule looks for.
+- **Melanomas are harder than nevi** for Otsu and SRM, and for all three
+  methods once the hull is applied. That is the clinically expected direction,
+  since irregular, poorly defined borders are exactly what the ABCD rule looks
+  for. LBP's raw masks are the exception: they score the same on both
+  (0.842 against 0.841).
 - **Post-processing had its own bugs.** An audit found five cases where a
   guard (the disc crop, the inversion threshold, two convex-hull safeguards,
   and hair removal's orientation coverage) was silently not doing what its own
@@ -121,8 +123,15 @@ and one report page per image in [`reports/segmentation_report.pdf`](reports/seg
   Otsu's per-channel threshold now does too. The same fix was tried on SRM's
   border-sampled skin reference; it turned out to need retuning SRM's
   hand-calibrated scoring weights to actually help rather than hurt, so it is
-  documented rather than silently applied (notebook section 7.7). The numbers
-  above are measured after every fix that was actually applied.
+  documented rather than silently applied (notebook section 7.7).
+- **So did the scoring.** Frame removal crops the three framed images, and
+  their full-size ground truth used to be *resized* to the cropped shape
+  instead of cropped with it, so prediction and truth no longer covered the
+  same pixels: even a perfect mask scored only 0.915 to 0.965 on them. The
+  ground truth is now cropped with the same box as the image (notebook
+  section 7.8). This lowered each method's mean raw Dice by 0.002 to 0.006
+  without changing the ranking. The numbers above are measured after every
+  fix that was actually applied.
 
 ## Installation
 
@@ -160,9 +169,9 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Forty-eight tests, in a few seconds, almost entirely on synthetic in-memory
-arrays: Otsu and SRM are only run on small synthetic images to check their
-output contract, and the real dataset is never touched. The exception is
+Fifty tests, in a few seconds, almost entirely on synthetic in-memory
+arrays: Otsu, SRM and the pipeline are only run on small synthetic images to
+check their contracts, and the real dataset is never touched. The exception is
 `data.py`'s four tests, which write and read back a handful of tiny synthetic
 files. They pin the parts that are heuristics rather than
 mathematics, because those are what break quietly:
@@ -181,7 +190,7 @@ mathematics, because those are what break quietly:
 - **The diagonal hair-removal footprints**, both their geometry and that all
   four orientations actually enter the pixelwise maximum.
 - **The hair-removal coverage gate**, which has to threshold the response into
-  hair/not-hair pixels before measuring the fraction of the image they cover,
+  hair/not-hair pixels before measuring the fraction of the valid area they cover,
   not sum the raw intensity difference: that sum lives on a different scale
   and barely tracks how much hair is actually present.
 - **Otsu's per-channel threshold and SRM's border-sampled skin reference**,
@@ -189,6 +198,10 @@ mathematics, because those are what break quietly:
   way LBP's clustering already did, instead of letting that synthetic cluster
   pull the statistic away from the real lesion/skin boundary. (The pipeline
   passes that mask to Otsu but not to SRM; see "What the numbers say" above.)
+- **Scoring on a framed image**: frame removal crops it, so the ground truth
+  must be cropped with the exact same box. The test scores a perfect mask on
+  a synthetic framed image and requires exactly 1.0, which the old resizing
+  failed.
 
 The narrative walkthrough is in
 [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb),
@@ -203,7 +216,7 @@ from dermoseg.pipeline import run_all_methods
 sample = load_sample("data/melanoma/ISIC_0000140.jpg")
 outcome = run_all_methods(sample)
 
-print(outcome.scores)   # {'Otsu': 0.909, 'Otsu_Hull': 0.931, 'LBP': 0.915, ...}
+print(outcome.scores)   # {'Otsu': 0.877, 'Otsu_Hull': 0.931, 'LBP': 0.895, ...}
 # Otsu's exact figure can differ by ~0.0002 from reports/per_image_results.csv:
 # its Chan-Vese refinement has the small run-to-run non-determinism described
 # under "Reproducing the results" above. LBP and SRM are seeded and match exactly.
@@ -226,8 +239,8 @@ src/dermoseg/
     ├── lbp.py             LBP clustering with the pinkness criterion
     └── region_merging.py  SRM (and Felzenszwalb) + region selection
 
-tests/       48 unit tests on the metric, the guards, the LBP operator,
-             the preprocessing helpers and the three segmenters' scaling code
+tests/       50 unit tests on the metric, the guards, the LBP operator,
+             the preprocessing helpers, the three segmenters and the scoring
 scripts/     run_benchmark.py, segment_image.py
 notebooks/   01_method_comparison.ipynb
 data/        20 ISIC images with ground-truth masks

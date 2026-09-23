@@ -16,7 +16,7 @@ from skimage.measure import label, regionprops
 # large lesion, a radius-relative reach can exceed the image itself, so the
 # "distant speck" it was meant to exclude becomes unreachable — every pixel in
 # the image counts as "close enough". Measured against the 20 images here, the
-# farthest corner from the lesion sits at 51-57% of the diagonal regardless of
+# farthest corner from the lesion sits at 51-58% of the diagonal regardless of
 # lesion size, so 0.25 keeps genuine nearby fragments while remaining unable to
 # reach a far corner on any of them.
 #

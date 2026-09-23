@@ -21,8 +21,8 @@ HAIR_DILATION_SIZE = 20
 # Fraction of the valid area the (dilated, eroded) hair mask must cover for
 # removal to run. Recalibrated against this dataset after the coverage gate's
 # formula was fixed to actually count pixels (see remove_hair): the twenty
-# images split into five clearly hairy ones between 4.5% and 19.2% coverage,
-# and the rest under 3%, with nothing in between.
+# images split into five clearly hairy ones between 4.45% and 19.2% coverage,
+# and the rest under 2.9%, with nothing in between.
 HAIR_COVERAGE_THRESHOLD = 0.03
 
 
@@ -53,6 +53,53 @@ def isolate_dermoscope_circle(
     Returns:
         The image with the frame whitened (and cropped), and the 0/255 disc mask.
     """
+    disc = _detect_disc(
+        image,
+        circle_threshold=circle_threshold,
+        shrink_factor=shrink_factor,
+        border_dark_threshold=border_dark_threshold,
+        border_ratio_trigger=border_ratio_trigger,
+        border_width_ratio=border_width_ratio,
+    )
+    if disc is None:
+        return image.copy(), np.full(image.shape[:2], 255, dtype=np.uint8)
+
+    output = image.copy()
+    output[~disc] = 255  # white, not black, so the frame cannot pass for a lesion
+    disc = (disc * 255).astype(np.uint8)
+
+    if crop:
+        box = _bounding_box(disc > 0)
+        output, disc = output[box], disc[box]
+
+    return output, disc
+
+
+def dermoscope_crop_box(image: np.ndarray) -> tuple[slice, slice]:
+    """The rows and columns :func:`isolate_dermoscope_circle` keeps when it crops.
+
+    Anything pixel-aligned with the original image, the ground-truth mask above
+    all, must be cropped with this same box to stay aligned with the
+    preprocessed image. Resizing it to the cropped shape instead would stretch
+    it: on this dataset's framed images, even a perfect segmentation would then
+    score only about 0.92 Dice. Images without a frame keep every pixel.
+    """
+    disc = _detect_disc(image)
+    if disc is None:
+        return slice(None), slice(None)
+    return _bounding_box(disc)
+
+
+def _detect_disc(
+    image: np.ndarray,
+    *,
+    circle_threshold: int = 60,
+    shrink_factor: float = 0.9,
+    border_dark_threshold: int = 30,
+    border_ratio_trigger: float = 0.2,
+    border_width_ratio: float = 0.05,
+) -> np.ndarray | None:
+    """Boolean mask of the lit dermoscope disc, or None if there is no dark frame."""
     height, width = image.shape[:2]
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
@@ -63,15 +110,14 @@ def isolate_dermoscope_circle(
     border[:, :band] = border[:, -band:] = True
 
     dark_ratio = ((gray < border_dark_threshold) & border).sum() / border.sum()
-    full_mask = np.full((height, width), 255, dtype=np.uint8)
     if dark_ratio < border_ratio_trigger:
-        return image.copy(), full_mask
+        return None
 
     # Largest bright connected component = the lit disc.
     _, binary = cv2.threshold(gray, circle_threshold, 255, cv2.THRESH_BINARY)
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
     if n_labels <= 1:
-        return image.copy(), full_mask
+        return None
 
     main_label = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     ys, xs = np.where(labels == main_label)
@@ -80,18 +126,13 @@ def isolate_dermoscope_circle(
     radius = int(np.sqrt(((xs - centre_x) ** 2 + (ys - centre_y) ** 2).max()) * shrink_factor)
 
     grid_y, grid_x = np.ogrid[:height, :width]
-    disc = ((grid_x - centre_x) ** 2 + (grid_y - centre_y) ** 2) <= radius**2
-    disc = (disc * 255).astype(np.uint8)
+    return ((grid_x - centre_x) ** 2 + (grid_y - centre_y) ** 2) <= radius**2
 
-    output = image.copy()
-    output[disc == 0] = 255  # white, not black, so the frame cannot pass for a lesion
 
-    if crop:
-        ys, xs = np.where(disc == 255)
-        output = output[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
-        disc = disc[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
-
-    return output, disc
+def _bounding_box(mask: np.ndarray) -> tuple[slice, slice]:
+    """The smallest rows-by-columns box containing every True pixel of ``mask``."""
+    ys, xs = np.where(mask)
+    return slice(ys.min(), ys.max() + 1), slice(xs.min(), xs.max() + 1)
 
 
 def _diagonal_footprint(length: int, width: int, *, anti: bool = False) -> np.ndarray:

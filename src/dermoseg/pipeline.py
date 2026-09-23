@@ -13,11 +13,11 @@ import numpy as np
 from .data import Sample
 from .metrics import dice_score
 from .postprocessing import clean_mask, fill_holes, smart_convex_hull
-from .preprocessing import preprocess_with_mask
+from .preprocessing import dermoscope_crop_box, preprocess_with_mask
 from .segmentation import lbp, otsu, region_merging
 
-# Method name -> callable taking a preprocessed RGB image and returning a
-# SegmentationResult. The parameters are the ones tuned during the project.
+# Method name -> callable taking a preprocessed RGB image and its valid-area
+# mask, and returning a SegmentationResult. The parameters are the ones tuned during the project.
 METHODS = {
     "Otsu": lambda image, valid: otsu.segment(image, valid_mask=valid),
     "LBP": lambda image, valid: lbp.segment(image, sigma=3.0, valid_mask=valid),
@@ -36,6 +36,10 @@ class PipelineOutcome:
     name: str
     category: str
     preprocessed: np.ndarray
+    # The ground truth cropped exactly like ``preprocessed``, so the two stay
+    # pixel-aligned. This, not ``Sample.ground_truth``, is what masks are
+    # scored and drawn against.
+    ground_truth: np.ndarray
     masks: dict[str, np.ndarray] = field(default_factory=dict)
     hulls: dict[str, np.ndarray] = field(default_factory=dict)
     scores: dict[str, float] = field(default_factory=dict)
@@ -81,11 +85,17 @@ def run_all_methods(
     methods = METHODS if methods is None else methods
     if do_preprocess:
         image, valid_mask = preprocess_with_mask(sample.image)
+        # Frame removal crops framed images; the ground truth has to lose the
+        # same rows and columns, not be resized to the cropped shape.
+        ground_truth = sample.ground_truth[dermoscope_crop_box(sample.image)]
     else:
         image = sample.image
         valid_mask = np.ones(image.shape[:2], dtype=bool)
+        ground_truth = sample.ground_truth
 
-    outcome = PipelineOutcome(name=sample.name, category=sample.category, preprocessed=image)
+    outcome = PipelineOutcome(
+        name=sample.name, category=sample.category, preprocessed=image, ground_truth=ground_truth
+    )
 
     for name, segmenter in methods.items():
         result = segmenter(image, valid_mask)
@@ -95,8 +105,8 @@ def run_all_methods(
 
         outcome.masks[name] = mask
         outcome.hulls[name] = hull
-        outcome.scores[name] = dice_score(mask, sample.ground_truth)
-        outcome.scores[f"{name}_Hull"] = dice_score(hull, sample.ground_truth)
+        outcome.scores[name] = dice_score(mask, ground_truth)
+        outcome.scores[f"{name}_Hull"] = dice_score(hull, ground_truth)
         if keep_results:
             outcome.results[name] = result
 

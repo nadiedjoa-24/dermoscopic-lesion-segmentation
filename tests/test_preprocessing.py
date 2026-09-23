@@ -6,6 +6,7 @@ from dermoseg import preprocessing
 from dermoseg.preprocessing import (
     _diagonal_footprint,
     _directional_closing_max,
+    dermoscope_crop_box,
     isolate_dermoscope_circle,
 )
 
@@ -66,6 +67,28 @@ def test_isolate_dermoscope_circle_leaves_unframed_images_untouched():
     output, mask = isolate_dermoscope_circle(image)
     assert output.shape == image.shape
     assert (mask > 0).all()
+    assert dermoscope_crop_box(image) == (slice(None), slice(None))
+
+
+def test_dermoscope_crop_box_is_the_crop_frame_removal_applies():
+    """A framed image is cropped; the crop box must reproduce that exact crop.
+
+    Everything aligned with the original image (the ground truth) is cropped
+    with this box, so a mismatch would silently misalign it.
+    """
+    height, width = 200, 300
+    grid_y, grid_x = np.ogrid[:height, :width]
+    lit_disc = (grid_x - 150) ** 2 + (grid_y - 100) ** 2 <= 90**2
+    image = np.zeros((height, width, 3), dtype=np.uint8)
+    image[lit_disc] = 200
+
+    cropped, _ = isolate_dermoscope_circle(image, crop=True)
+    rows, columns = dermoscope_crop_box(image)
+
+    assert cropped.shape[:2] != image.shape[:2]  # the frame really was cropped
+    assert np.array_equal(image[rows, columns].shape, cropped.shape)
+    whitened, _ = isolate_dermoscope_circle(image, crop=False)
+    assert np.array_equal(whitened[rows, columns], cropped)
 
 
 def test_remove_hair_coverage_is_a_pixel_fraction_of_the_dilated_mask(monkeypatch):

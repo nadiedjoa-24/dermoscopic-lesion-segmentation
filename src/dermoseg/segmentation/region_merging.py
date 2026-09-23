@@ -125,10 +125,11 @@ def score_regions(
     """Score every region on darkness, centrality and saturation.
 
     Skin reference values are read off a one-pixel band along the image border,
-    which after frame removal and cropping is almost entirely healthy skin,
-    except for the crop's corners: a circular disc inscribed in a rectangular
-    crop still leaves a sliver of whitened frame in each corner, right on that
-    border. ``valid`` drops those pixels from the reference when it is given.
+    which on an unframed image is mostly healthy skin. On a framed image it is
+    not: the crop is the dermoscope disc's bounding box, so the disc only
+    touches the border near four points and the rest of the band runs through
+    the whitened corners (65-72% of it on this dataset's three framed images).
+    ``valid`` drops those pixels from the reference when it is given.
 
     Returns:
         The per-region scores, and a score map for visualisation.
