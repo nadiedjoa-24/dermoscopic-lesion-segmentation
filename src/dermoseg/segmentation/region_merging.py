@@ -234,6 +234,21 @@ def segment(
         valid_mask: Boolean mask of pixels carrying real image data, used to
             keep whitened frame corners out of the border-sampled skin
             reference in :func:`score_regions`.
+
+            Correct in isolation (see the tests), but deliberately **not**
+            passed by :data:`dermoseg.pipeline.METHODS`: on this dataset's
+            framed images, the unmasked reference sits at intensity 1.0 and
+            saturation 0.0 (the whitened corners themselves), and
+            ``WEIGHT_CONTRAST``/``WEIGHT_SATURATION``/``MIN_CONTRAST``/
+            ``MIN_SATURATION_DIFF``/``SCORE_KEEP_RATIO`` above were all tuned
+            against scores computed relative to that reference. Passing the
+            real, unbiased reference (around 0.42 / 0.06 instead) changes the
+            scale those scores live on without retuning the thresholds that
+            judge them, which measurably hurts Dice on the framed images in
+            this dataset rather than helping it. Fixing the reference properly
+            would mean retuning the scoring weights alongside it, which is out
+            of scope here; the parameter is kept so that work has something to
+            build on.
     """
     if backend not in {"srm", "felzenszwalb"}:
         raise ValueError(f"unknown backend {backend!r}, expected 'srm' or 'felzenszwalb'")

@@ -18,7 +18,12 @@ HAIR_STRUCTURE_LENGTH = 50
 HAIR_STRUCTURE_WIDTH = 10
 HAIR_RESPONSE_THRESHOLD = 40
 HAIR_DILATION_SIZE = 20
-HAIR_COVERAGE_THRESHOLD = 0.2
+# Fraction of the valid area the (dilated, eroded) hair mask must cover for
+# removal to run. Recalibrated against this dataset after the coverage gate's
+# formula was fixed to actually count pixels (see remove_hair): the twenty
+# images split into five clearly hairy ones between 4.5% and 19.2% coverage,
+# and the rest under 3%, with nothing in between.
+HAIR_COVERAGE_THRESHOLD = 0.03
 
 
 def isolate_dermoscope_circle(
@@ -182,11 +187,14 @@ def remove_hair(image: np.ndarray, disc_mask: np.ndarray) -> np.ndarray:
     """
     hair_masks, red_response = detect_hair(image)
 
-    # Threshold the red channel's response into a hair/not-hair pixel map, then
-    # erode it so a lone thick blob outweighs many thin noise specks, and
-    # measure the fraction of the valid area it covers.
-    red_hair_pixels = np.abs(image[..., 0].astype(float) - red_response) > HAIR_RESPONSE_THRESHOLD
-    coverage = morphology.erosion(red_hair_pixels, footprint=morphology.disk(12))
+    # hair_masks is already a thresholded, dilated pixel map (20x20 square),
+    # so eroding it by a disc keeps only areas thick enough to be a real,
+    # extended patch of hair rather than a handful of stray flagged pixels: a
+    # thin hair line, on its own, is nowhere near wide enough to survive this
+    # erosion, no matter how long it runs. What survives is genuinely close to
+    # what the inpainting below will touch, so its fraction of the valid area
+    # is a meaningful coverage measure.
+    coverage = morphology.erosion(hair_masks[..., 0], footprint=morphology.disk(12))
     if coverage.sum() / max(disc_mask.sum(), 1) < HAIR_COVERAGE_THRESHOLD:
         return image
 

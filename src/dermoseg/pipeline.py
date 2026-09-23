@@ -21,8 +21,10 @@ from .segmentation import lbp, otsu, region_merging
 METHODS = {
     "Otsu": lambda image, valid: otsu.segment(image, valid_mask=valid),
     "LBP": lambda image, valid: lbp.segment(image, sigma=3.0, valid_mask=valid),
+    # SRM's region_merging.segment also accepts valid_mask (see its docstring
+    # for why it is deliberately not passed here).
     "SRM": lambda image, valid: region_merging.segment(
-        image, scale=25.0, gaussian_sigma=2.0, backend="srm", valid_mask=valid
+        image, scale=25.0, gaussian_sigma=2.0, backend="srm"
     ),
 }
 

@@ -68,37 +68,44 @@ def test_isolate_dermoscope_circle_leaves_unframed_images_untouched():
     assert (mask > 0).all()
 
 
-def test_remove_hair_coverage_is_a_pixel_fraction_not_a_mean_intensity(monkeypatch):
+def test_remove_hair_coverage_is_a_pixel_fraction_of_the_dilated_mask(monkeypatch):
     """Regression guard on the coverage gate.
 
-    It must count pixels whose response clears ``HAIR_RESPONSE_THRESHOLD``
-    and measure the fraction of the disc they cover, not sum the raw,
-    unthresholded intensity difference: that sum lives on a completely
-    different scale and barely tracks how much hair is actually present (a
-    uniform, sub-threshold difference across the whole image summed to more
-    than a real, dense hair patch ever could).
+    It must erode ``detect_hair``'s already-dilated mask and measure the
+    fraction of the disc that survives, not sum a raw, unthresholded
+    intensity difference (a completely different scale, barely tracking how
+    much hair is actually present). Eroding the *dilated* mask matters too: a
+    thin hair line, however long, is nowhere near wide enough to survive a
+    disc(12) erosion on its own, only a genuinely extended patch is.
     """
     size = 100
     image = np.full((size, size, 3), 150, dtype=np.uint8)
     disc_mask = np.ones((size, size), dtype=bool)
-    hair_masks = np.zeros((size, size, 3), dtype=bool)
+    response = np.zeros((size, size))  # unused by the fixed gate, kept for the call signature
 
     calls = []
     monkeypatch.setattr(
         preprocessing, "_inpaint_channel", lambda channel, missing: calls.append(1) or channel
     )
 
-    # Every pixel differs by 30, under the 40-response threshold: no pixel is
-    # hair, so the correct covered fraction is exactly zero.
-    faint_response = np.full((size, size), 150.0 - 30.0)
-    monkeypatch.setattr(preprocessing, "detect_hair", lambda img: (hair_masks, faint_response))
+    # No hair at all: the gate must skip.
+    no_hair = np.zeros((size, size, 3), dtype=bool)
+    monkeypatch.setattr(preprocessing, "detect_hair", lambda img: (no_hair, response))
     preprocessing.remove_hair(image, disc_mask)
     assert calls == []
 
-    # A dense, above-threshold patch covering most of the image: real hair,
-    # and it must survive erosion above the 20% coverage threshold.
-    thick_response = np.full((size, size), 150.0)
-    thick_response[6:-6, 6:-6] = 150.0 - 60.0
-    monkeypatch.setattr(preprocessing, "detect_hair", lambda img: (hair_masks, thick_response))
+    # A thin, full-width line: real pixels are flagged, but a 1-pixel-thin
+    # line cannot survive a disc(12) erosion, so it must still skip.
+    thin_line = np.zeros((size, size, 3), dtype=bool)
+    thin_line[size // 2, :, :] = True
+    monkeypatch.setattr(preprocessing, "detect_hair", lambda img: (thin_line, response))
+    preprocessing.remove_hair(image, disc_mask)
+    assert calls == []
+
+    # A large, solid block: genuinely extended, well over a disc(12) across,
+    # so it must survive erosion and trigger removal.
+    thick_block = np.zeros((size, size, 3), dtype=bool)
+    thick_block[10:-10, 10:-10, :] = True
+    monkeypatch.setattr(preprocessing, "detect_hair", lambda img: (thick_block, response))
     preprocessing.remove_hair(image, disc_mask)
     assert len(calls) == 3  # once per RGB channel

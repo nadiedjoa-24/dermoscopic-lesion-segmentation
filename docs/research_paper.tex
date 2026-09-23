@@ -187,9 +187,10 @@ The improved version detects complex structures without degrading skin texture:
   the surrounding healthy skin.
 \end{enumerate}
 
-A coverage test guards the whole stage: if the eroded hair response covers less
-than 20\,\% of the valid area, the image is returned untouched. Inpainting a
-hairless image only blurs the very border the segmentation is looking for.
+A coverage test guards the whole stage: if the eroded hair mask covers less
+than a threshold fraction of the valid area, the image is returned untouched.
+Inpainting a hairless image only blurs the very border the segmentation is
+looking for. Section~\ref{sec:coverage-gate} returns to this test itself.
 
 \subsubsection{Two closings were not "any orientation"}
 \label{sec:diagonal-hair}
@@ -213,6 +214,32 @@ four orientations flags more hair pixels than the two-orientation version on
 images to over $30\,\%$ more on some of the hairiest. Diagonal hairs were
 simply invisible to the previous version wherever they ran closer to
 $45^\circ$ than to either axis.
+
+\subsubsection{The coverage gate summed an intensity, not a fraction}
+\label{sec:coverage-gate}
+
+The coverage test above (Section~1.2.2) is meant to measure a pixel fraction:
+skip inpainting when the eroded hair mask covers less than a threshold share
+of the valid area. The buggy version eroded the \emph{raw, unthresholded}
+intensity difference and summed it directly, a quantity on a completely
+different scale from a fraction, and compared that sum to the same constant
+anyway. Its decisions barely tracked how much hair was actually present: on
+\texttt{ISIC\_0000030}, whose lesion has little hair, the buggy ratio read
+$0.319$, comfortably over its $0.2$ threshold, and would have inpainted it
+regardless.
+
+The fix erodes the mask \texttt{detect\_hair} already builds (thresholded,
+then dilated) instead of the raw response: a lone thin hair line, however
+long, cannot survive a disc(12) erosion on its own, only a genuinely extended
+patch can, so what survives is a real measure of how much the inpainting
+would touch. On \texttt{ISIC\_0000030} the corrected ratio is $0.003$, and the
+image is correctly left alone. Forcing the old, wrong decision on this image
+costs the region-merging method $0.124$ Dice ($0.724$ left alone, $0.600$
+wrongly inpainted) purely from the unnecessary blur inpainting introduces at
+the lesion border, exactly the failure mode the gate exists to prevent. With
+this fix, five of the twenty images clear the recalibrated coverage
+threshold; the other fifteen, including some the old code wrongly inpainted,
+are correctly left alone.
 
 \section{Segmentation methods}
 
@@ -377,7 +404,7 @@ The implementation follows the algorithm directly rather than calling a library,
 and the smoothing is applied to the grayscale image, not to the colour image: a
 scalar Gaussian $\sigma$ on an $(H, W, 3)$ array also blurs \emph{across} the
 channel axis, mixing red into blue. We measured this mistake to cost
-$0.35$ Dice on a single image (ISIC\_0000146: $0.440$ before correction, $0.792$
+$0.39$ Dice on a single image (ISIC\_0000146: $0.440$ before correction, $0.828$
 after) before it was found.
 
 \subsubsection{From regions to a lesion}
@@ -410,6 +437,45 @@ condition prevents the mask from creeping into shaded skin.
   selected regions and the final mask.}
   \label{fig:srm}
 \end{figure}
+
+\subsection{Otsu and SRM's blind spot to the frame corners}
+\label{sec:frame-blind-spot}
+
+Section~2.2.4 already covers why LBP's clustering has to ignore the whitened
+frame corners left by frame removal (Section~1.1): unguarded, a global colour
+model reads them as real data and lets them form a cluster of their own. Only
+LBP was actually guarded against this. Otsu's per-channel \texttt{threshold\_otsu}
+has the same vulnerability: the corners read as a third, artificially bright
+cluster and can pull the computed threshold away from the true lesion/skin
+boundary. SRM's region scoring has it one level further removed, since its
+skin reference is read off a one-pixel band along the image border, and a
+circular disc inscribed in a rectangular crop still grazes a sliver of frame
+in each corner.
+
+Restricting Otsu's threshold to the valid pixels is a direct, contained fix.
+On \texttt{ISIC\_0000030}, a framed melanoma image, doing so moves the
+per-channel thresholds measurably (red: $0.601 \rightarrow 0.576$; green:
+$0.503 \rightarrow 0.451$; blue: $0.534 \rightarrow 0.500$), removing a real
+source of bias, for a Dice change of only $0.673 \rightarrow 0.667$ on this
+image: the fix is about correctness, not chasing a dramatic number here.
+
+The same fix on SRM's border reference tells a more cautionary story. Read
+off the same image's border, the reference sits at intensity $1.0$ and
+saturation $0.0$ when the frame is included: the whitened corners themselves,
+not skin. Excluding them gives intensity $0.418$ and saturation $0.058$, the
+real skin tone. Yet the more accurate reference scores \emph{lower}, not
+higher: Dice on this image falls from $0.724$ to $0.510$. The reason is that
+the weights and thresholds \texttt{region\_merging.py} uses to judge a
+region's score were all tuned by hand against values computed relative to the
+biased reference; swapping in the unbiased one changes the scale those scores
+live on without retuning the thresholds that judge them. \texttt{region\_merging.segment}
+keeps the corrected reference available as an opt-in parameter, verified
+correct in isolation by its own unit tests, but the benchmark pipeline
+deliberately does not enable it: fixing the reference properly means
+retuning the scoring weights alongside it, which is out of scope here.
+Shipping a "more correct" input into a hand-tuned system built around the
+old, biased one is exactly the kind of silent mismatch this audit exists to
+catch, not to introduce.
 
 \subsection{Post-processing: the smart convex hull}
 
@@ -483,10 +549,10 @@ sits. Fixing the previous three guards let raw masks reach this code path for
 the first time on unframed images, and exposed why that reasoning fails in
 practice: on \texttt{ISIC\_0000095}, the LBP method's texture criterion also
 flags several patches of scaly skin scattered across the image, unrelated to
-the lesion. The largest weighs $23\,\%$ of the main region's own area and sits
-over $1100$\,px away, so the old rule glued it, and several smaller ones, into
-the hull regardless of distance: the buggy hull scores just $0.184$ Dice on
-this image, and the fix (distance alone) recovers it to $0.620$. Being large
+the lesion. The largest weighs $34\,\%$ of the main region's own area and sits
+$972$\,px away, so the old rule glued it, and several smaller ones, into
+the hull regardless of distance: the buggy hull scores just $0.189$ Dice on
+this image, and the fix (distance alone) recovers it to $0.694$. Being large
 gave a region no more claim to belonging to the lesion than being small; only
 distance does. The fix removes the size-based exemption, so every satellite is
 now judged by the same reach, however large it is.
@@ -519,7 +585,7 @@ coefficient. Table~\ref{tab:overall} gives the means over the \nimages{} images.
 Two trends stand out.
 
 \paragraph{The convex hull helps all three methods by a similar margin.} It
-raises the mean Dice of Otsu, LBP and SRM alike by roughly $0.041$–$0.057$,
+raises the mean Dice of Otsu, LBP and SRM alike by roughly $0.046$–$0.056$,
 because all three tend to fragment the lesion and the hull glues the pieces
 back together — including LBP, whose masks we had assumed were already
 connected enough not to need it. That assumption does not hold everywhere: on

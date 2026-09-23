@@ -79,28 +79,28 @@ Mean Dice over the twenty images, computed by `scripts/run_benchmark.py`:
 
 | Method | Dice (mask) | Dice (+ convex hull) |
 |---|---|---|
-| Multi-channel Otsu | 0.830 | 0.871 |
-| LBP Clustering | **0.841** | **0.898** |
-| Statistical Region Merging | 0.804 | 0.852 |
+| Multi-channel Otsu | 0.838 | 0.890 |
+| LBP Clustering | **0.844** | **0.900** |
+| Statistical Region Merging | 0.826 | 0.872 |
 
 Per category:
 
 | Method | Melanoma | Melanoma + hull | Nevus | Nevus + hull |
 |---|---|---|---|---|
-| Multi-channel Otsu | 0.819 | 0.873 | 0.841 | 0.870 |
-| LBP Clustering | 0.842 | 0.893 | 0.840 | 0.903 |
-| Statistical Region Merging | 0.766 | 0.824 | 0.841 | 0.881 |
+| Multi-channel Otsu | 0.820 | 0.873 | 0.856 | 0.907 |
+| LBP Clustering | 0.844 | 0.893 | 0.844 | 0.907 |
+| Statistical Region Merging | 0.795 | 0.850 | 0.856 | 0.893 |
 
 Per-image scores are in [`reports/per_image_results.csv`](reports/per_image_results.csv),
 and one report page per image in [`reports/segmentation_report.pdf`](reports/segmentation_report.pdf).
 
 **What the numbers say.**
 
-- **LBP Clustering produces the best raw masks** (0.841), narrowly ahead of
-  Otsu (0.830) and SRM (0.804). With the convex hull applied, LBP is also the
-  best method overall (0.898).
+- **LBP Clustering produces the best raw masks** (0.844), narrowly ahead of
+  Otsu (0.838) and SRM (0.826). With the convex hull applied, LBP is also the
+  best method overall (0.900).
 - **The convex hull helps all three methods by a similar amount** (roughly
-  +0.041 to +0.057 Dice on average), including LBP: its masks are not as
+  +0.046 to +0.056 Dice on average), including LBP: its masks are not as
   reliably already-connected as we first assumed. The exception is a handful
   of images where the raw mask was already excellent (Dice above 0.88): on
   those, adding convexity is pure loss, costing LBP up to 0.027 Dice on
@@ -115,12 +115,14 @@ and one report page per image in [`reports/segmentation_report.pdf`](reports/seg
   documentation claimed. All five are fixed here and detailed, with concrete
   before/after examples, in [`docs/research_paper.pdf`](docs/research_paper.pdf)
   and [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb).
-  A later pass found two more of the same kind: the hair-removal coverage gate
-  compared a raw intensity sum against a fraction threshold instead of
-  counting pixels, and only LBP's clustering ignored the whitened frame
-  corners in its statistics; Otsu's per-channel threshold and SRM's
-  border-sampled skin reference now do too. The numbers above are measured
-  after every fix.
+  A later pass found two more: the hair-removal coverage gate compared a raw
+  intensity sum against a fraction threshold instead of counting pixels, and
+  only LBP's clustering ignored the whitened frame corners in its statistics.
+  Otsu's per-channel threshold now does too. The same fix was tried on SRM's
+  border-sampled skin reference; it turned out to need retuning SRM's
+  hand-calibrated scoring weights to actually help rather than hurt, so it is
+  documented rather than silently applied (notebook section 7.7). The numbers
+  above are measured after every fix that was actually applied.
 
 ## Installation
 
@@ -199,7 +201,10 @@ from dermoseg.pipeline import run_all_methods
 sample = load_sample("data/melanoma/ISIC_0000140.jpg")
 outcome = run_all_methods(sample)
 
-print(outcome.scores)   # {'Otsu': 0.909, 'Otsu_Hull': 0.930, 'LBP': 0.911, ...}
+print(outcome.scores)   # {'Otsu': 0.909, 'Otsu_Hull': 0.930, 'LBP': 0.915, ...}
+# Otsu's exact figure can differ by ~0.001 from reports/per_image_results.csv:
+# its Chan-Vese refinement has the small run-to-run non-determinism described
+# under "Reproducing the results" below. LBP and SRM are seeded and match exactly.
 print(outcome.masks["LBP"].shape)
 ```
 
