@@ -161,9 +161,10 @@ pytest
 ```
 
 Forty-eight tests, in a few seconds, almost entirely on synthetic in-memory
-arrays: no segmentation method is run end-to-end. The exception is `data.py`'s
-four tests, which write and read back a handful of tiny synthetic files rather
-than the real dataset. They pin the parts that are heuristics rather than
+arrays: Otsu and SRM are only run on small synthetic images to check their
+output contract, and the real dataset is never touched. The exception is
+`data.py`'s four tests, which write and read back a handful of tiny synthetic
+files. They pin the parts that are heuristics rather than
 mathematics, because those are what break quietly:
 
 - **Dice** on its stated edge cases, including two empty masks scoring 1.0 and
@@ -184,9 +185,10 @@ mathematics, because those are what break quietly:
   not sum the raw intensity difference: that sum lives on a different scale
   and barely tracks how much hair is actually present.
 - **Otsu's per-channel threshold and SRM's border-sampled skin reference**,
-  which must ignore the whitened frame corners the same way LBP's clustering
-  already did, instead of letting that synthetic cluster pull the statistic
-  away from the real lesion/skin boundary.
+  which ignore the whitened frame corners when given a valid mask, the same
+  way LBP's clustering already did, instead of letting that synthetic cluster
+  pull the statistic away from the real lesion/skin boundary. (The pipeline
+  passes that mask to Otsu but not to SRM; see "What the numbers say" above.)
 
 The narrative walkthrough is in
 [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb),
@@ -201,10 +203,10 @@ from dermoseg.pipeline import run_all_methods
 sample = load_sample("data/melanoma/ISIC_0000140.jpg")
 outcome = run_all_methods(sample)
 
-print(outcome.scores)   # {'Otsu': 0.909, 'Otsu_Hull': 0.930, 'LBP': 0.915, ...}
-# Otsu's exact figure can differ by ~0.001 from reports/per_image_results.csv:
+print(outcome.scores)   # {'Otsu': 0.909, 'Otsu_Hull': 0.931, 'LBP': 0.915, ...}
+# Otsu's exact figure can differ by ~0.0002 from reports/per_image_results.csv:
 # its Chan-Vese refinement has the small run-to-run non-determinism described
-# under "Reproducing the results" below. LBP and SRM are seeded and match exactly.
+# under "Reproducing the results" above. LBP and SRM are seeded and match exactly.
 print(outcome.masks["LBP"].shape)
 ```
 
