@@ -53,7 +53,8 @@ whitened and cropped.
 elongated structuring elements, then inpainted from surrounding skin. A closing
 with an element wider than a hair erases it, so the difference reveals it.
 Images with little hair are left untouched, since inpainting a clean image only
-blurs the border being sought.
+blurs the border being sought. The detector has a known weakness, stated under
+[Limitations](#limitations): it also responds to a lesion's own dark texture.
 
 ### The three methods
 
@@ -69,9 +70,9 @@ reported as such, never as SRM.
 
 ### Post-processing
 
-Identical for all three, so only the segmentation differs: hole filling, an
-inversion guard for masks that selected skin instead of lesion, and a convex
-hull that ignores distant specks of noise.
+Identical for all three, so only the segmentation differs: clipping to the
+real image area, hole filling, and a convex hull that ignores distant specks
+of noise.
 
 ## Results
 
@@ -98,40 +99,20 @@ and one report page per image in [`reports/segmentation_report.pdf`](reports/seg
 
 - **LBP Clustering produces the best raw masks** (0.841), narrowly ahead of
   Otsu (0.832) and SRM (0.820). With the convex hull applied, LBP is also the
-  best method overall (0.901).
+  best method overall (0.901). On twenty images these gaps are small, so the
+  ranking is indicative rather than definitive.
 - **The convex hull helps all three methods by a similar amount** (roughly
-  +0.049 to +0.060 Dice on average), including LBP: its masks are not as
-  reliably already-connected as we first assumed. The exception is a handful
-  of images where the raw mask was already excellent (Dice above 0.88): on
-  those, adding convexity is pure loss, costing LBP up to 0.027 Dice on
-  `ISIC_0000001`, `ISIC_0000145` and `ISIC_0000080`.
+  +0.049 to +0.060 Dice on average), but not on every image: it lowers LBP's
+  score on `ISIC_0000001`, `ISIC_0000145` and `ISIC_0000080`, by up to 0.027.
   Convexity is an assumption about lesion shape, not a guarantee of improvement.
-- **Melanomas are harder than nevi** for Otsu and SRM, and for all three
-  methods once the hull is applied. That is the clinically expected direction,
-  since irregular, poorly defined borders are exactly what the ABCD rule looks
-  for. LBP's raw masks are the exception: they score the same on both
-  (0.842 against 0.841).
-- **Post-processing had its own bugs.** An audit found five cases where a
-  guard (the disc crop, the inversion threshold, two convex-hull safeguards,
-  and hair removal's orientation coverage) was silently not doing what its own
-  documentation claimed. All five are fixed here and detailed, with concrete
-  before/after examples, in [`docs/research_paper.pdf`](docs/research_paper.pdf)
-  and [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb).
-  A later pass found two more: the hair-removal coverage gate compared a raw
-  intensity sum against a fraction threshold instead of counting pixels, and
-  only LBP's clustering ignored the whitened frame corners in its statistics.
-  Otsu's per-channel threshold now does too. The same fix was tried on SRM's
-  border-sampled skin reference; it turned out to need retuning SRM's
-  hand-calibrated scoring weights to actually help rather than hurt, so it is
-  documented rather than silently applied (notebook section 7.7).
-- **So did the scoring.** Frame removal crops the three framed images, and
-  their full-size ground truth used to be *resized* to the cropped shape
-  instead of cropped with it, so prediction and truth no longer covered the
-  same pixels: even a perfect mask scored only 0.915 to 0.965 on them. The
-  ground truth is now cropped with the same box as the image (notebook
-  section 7.8). This lowered each method's mean raw Dice by 0.002 to 0.006
-  without changing the ranking. The numbers above are measured after every
-  fix that was actually applied.
+- **Melanoma against nevus shows no reliable difference here.** Melanomas
+  score lower on average in five of the six columns, the clinically expected
+  direction, but with ten images per class none of these gaps is
+  statistically significant (Mann-Whitney p above 0.4 in every column).
+- **An audit of the pipeline found and fixed several silent bugs**, the most
+  important being that the three framed images were scored against a
+  stretched ground truth. The notebook (section 7) lists them all and
+  demonstrates the main ones; the numbers above are measured after every fix.
 
 ## Installation
 
@@ -148,7 +129,8 @@ themselves, so they run from a bare clone either way.
 ## Reproducing the results
 
 ```bash
-# Full benchmark: CSV, per-image PDF report and summary figures (~9 min)
+# Full benchmark: CSV, per-image PDF report and summary figures
+# (around 15-20 min, almost all of it in preprocessing)
 python scripts/run_benchmark.py
 
 # One image, with the detailed pipeline figure for each method
@@ -169,7 +151,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Fifty tests, in a few seconds, almost entirely on synthetic in-memory
+Forty-nine tests, in a few seconds, almost entirely on synthetic in-memory
 arrays: Otsu, SRM and the pipeline are only run on small synthetic images to
 check their contracts, and the real dataset is never touched. The exception is
 `data.py`'s four tests, which write and read back a handful of tiny synthetic
@@ -178,17 +160,17 @@ mathematics, because those are what break quietly:
 
 - **Dice** on its stated edge cases, including two empty masks scoring 1.0 and
   the resize path taken when a downscaled prediction meets a full-size mask.
-- **The inversion guard**, and the fact that it has to run *before* hole
-  filling. On an inverted mask the lesion is the hole, so the other order
-  returns an empty mask. The test builds that exact case and asserts both.
+- **Clipping to the valid area**, and the fact that a lesion covering most of
+  it comes through post-processing intact. An earlier inversion guard would
+  have flipped it into its complement; it was removed.
 - **The convex hull's satellite rule**: a speck in a corner must not stretch
   the hull, and its reach cannot exceed the image regardless of the lesion's
   or the satellite's own size.
 - **The LBP operator** against patterns built by hand, since it is written from
   the paper and packs its bits clockwise from north. scikit-image starts
   elsewhere and turns the other way, so its codes are not a usable reference.
-- **The diagonal hair-removal footprints**, both their geometry and that all
-  four orientations actually enter the pixelwise maximum.
+- **The hair-removal footprints**, both their geometry and that all four
+  orientations actually enter the pixelwise maximum.
 - **The hair-removal coverage gate**, which has to threshold the response into
   hair/not-hair pixels before measuring the fraction of the valid area they cover,
   not sum the raw intensity difference: that sum lives on a different scale
@@ -197,11 +179,13 @@ mathematics, because those are what break quietly:
   which ignore the whitened frame corners when given a valid mask, the same
   way LBP's clustering already did, instead of letting that synthetic cluster
   pull the statistic away from the real lesion/skin boundary. (The pipeline
-  passes that mask to Otsu but not to SRM; see "What the numbers say" above.)
+  passes that mask to Otsu but not to SRM; the notebook's section 7 says why.)
 - **Scoring on a framed image**: frame removal crops it, so the ground truth
   must be cropped with the exact same box. The test scores a perfect mask on
   a synthetic framed image and requires exactly 1.0, which the old resizing
   failed.
+- **Colour smoothing** for the Felzenszwalb backend, which must blur each
+  channel on its own rather than mix red into blue.
 
 The narrative walkthrough is in
 [`notebooks/01_method_comparison.ipynb`](notebooks/01_method_comparison.ipynb),
@@ -229,7 +213,7 @@ print(outcome.masks["LBP"].shape)
 src/dermoseg/
 ├── data.py              dataset access and ground-truth loading
 ├── preprocessing.py     frame removal, hair removal
-├── postprocessing.py    hole filling, inversion guard, smart convex hull
+├── postprocessing.py    valid-area clipping, hole filling, smart convex hull
 ├── metrics.py           Dice coefficient
 ├── pipeline.py          run every method on one sample and score it
 ├── visualization.py     every figure in the project
@@ -239,7 +223,7 @@ src/dermoseg/
     ├── lbp.py             LBP clustering with the pinkness criterion
     └── region_merging.py  SRM (and Felzenszwalb) + region selection
 
-tests/       50 unit tests on the metric, the guards, the LBP operator,
+tests/       49 unit tests on the metric, the guards, the LBP operator,
              the preprocessing helpers, the three segmenters and the scoring
 scripts/     run_benchmark.py, segment_image.py
 notebooks/   01_method_comparison.ipynb
@@ -261,13 +245,18 @@ Stated plainly, because they bound what these numbers mean:
   interval here would be meaningful.
 - **Parameters were tuned on these same twenty images.** There is no held-out
   set, so the scores are optimistic.
-- **The inversion guard is a rescue, not a fix.** It flips masks that covered
-  more than 60% of the disc, which recovers a failed cluster choice rather than
-  preventing it.
-- **Low-contrast lesions defeat all three methods.** ISIC_0000024 and
-  ISIC_0000049 score below 0.70 on their raw masks: no intensity or texture cue
-  separates lesion from skin. These are the cases where a learned model would
-  win, and they mark the honest limit of this approach.
+- **The hair detector also detects lesion texture.** It flags any dark
+  structure narrower than its structuring elements, and the textured interior
+  of a lesion qualifies. On two hairless images (ISIC_0000140 and
+  ISIC_0000142) it passes the coverage gate on lesion texture alone and
+  inpaints parts of the lesion, which slightly lowers their scores and leaves
+  the coloured shards visible in the figure at the top of this page. A
+  detector that tells hair from lesion texture is left as future work.
+- **Two lesions defeat all three methods.** ISIC_0000024 and ISIC_0000049
+  score below 0.70 on their raw masks. The first is low-contrast; the second
+  is also the largest lesion in the set, and which of the two explains its
+  failure is not established. These are the cases where a learned model would
+  most likely do better.
 
 ## References
 

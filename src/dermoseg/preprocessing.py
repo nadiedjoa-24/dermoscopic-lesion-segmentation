@@ -19,10 +19,11 @@ HAIR_STRUCTURE_WIDTH = 10
 HAIR_RESPONSE_THRESHOLD = 40
 HAIR_DILATION_SIZE = 20
 # Fraction of the valid area the (dilated, eroded) hair mask must cover for
-# removal to run. Recalibrated against this dataset after the coverage gate's
-# formula was fixed to actually count pixels (see remove_hair): the twenty
-# images split into five clearly hairy ones between 4.45% and 19.2% coverage,
-# and the rest under 2.9%, with nothing in between.
+# removal to run (see remove_hair). Five of the twenty images clear it. Only
+# two of them are genuinely hairy (ISIC_0000042 and ISIC_0000095) and one has
+# a few thin hairs (ISIC_0000146); on the other two (ISIC_0000140 and
+# ISIC_0000142) the detector is responding to the lesion's own dark texture,
+# not to hair. That is a known limitation of this detector, stated in the README.
 HAIR_COVERAGE_THRESHOLD = 0.03
 
 
@@ -82,7 +83,7 @@ def dermoscope_crop_box(image: np.ndarray) -> tuple[slice, slice]:
     all, must be cropped with this same box to stay aligned with the
     preprocessed image. Resizing it to the cropped shape instead would stretch
     it: on this dataset's framed images, even a perfect segmentation would then
-    score only about 0.92 Dice. Images without a frame keep every pixel.
+    score only 0.915 to 0.965 Dice. Images without a frame keep every pixel.
     """
     disc = _detect_disc(image)
     if disc is None:
@@ -154,17 +155,17 @@ def _diagonal_footprint(length: int, width: int, *, anti: bool = False) -> np.nd
 def _directional_closing_max(channel: np.ndarray) -> np.ndarray:
     """Maximum of four grayscale closings, at 0, 45, 90 and 135 degrees.
 
-    Hairs are thin and elongated, so a closing with a structuring element longer
-    than the hair width erases them. A hair running horizontally or vertically
-    is caught by the matching axis-aligned element, but one running diagonally
-    is caught well by neither: it benefits from a horizontal or vertical
-    element only through the width margin, not the length, the same way a
-    horizontal element barely helps against a vertical hair. The two diagonal
-    elements close that gap, matching the range of orientations DullRazor
-    itself uses.
+    A closing erases any dark structure its structuring element cannot fit
+    inside. Every element here is 10 px wide, so any hair thinner than that is
+    erased by every one of them, whatever its orientation: two elements already
+    catch every thin hair, and adding the two diagonals does not catch more
+    hair. What the maximum over more elements does add is dark regions wide
+    enough to hold some of the elements but not all of them, which in practice
+    means the dark, textured interior of the lesion itself. That is why this
+    detector also fires inside lesions (see HAIR_COVERAGE_THRESHOLD).
     """
-    horizontal = np.ones((HAIR_STRUCTURE_LENGTH, HAIR_STRUCTURE_WIDTH), dtype=bool)
-    vertical = np.ones((HAIR_STRUCTURE_WIDTH, HAIR_STRUCTURE_LENGTH), dtype=bool)
+    vertical = np.ones((HAIR_STRUCTURE_LENGTH, HAIR_STRUCTURE_WIDTH), dtype=bool)
+    horizontal = np.ones((HAIR_STRUCTURE_WIDTH, HAIR_STRUCTURE_LENGTH), dtype=bool)
     diagonal = _diagonal_footprint(HAIR_STRUCTURE_LENGTH, HAIR_STRUCTURE_WIDTH)
     anti_diagonal = _diagonal_footprint(HAIR_STRUCTURE_LENGTH, HAIR_STRUCTURE_WIDTH, anti=True)
 
@@ -181,8 +182,10 @@ def _directional_closing_max(channel: np.ndarray) -> np.ndarray:
 def detect_hair(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Return the per-channel hair mask and the closing response of the red channel.
 
-    A pixel is hair where the closing removed a noticeable amount of intensity,
-    i.e. where it was darker than its elongated neighbourhood.
+    A pixel is flagged where the closing raised its intensity noticeably, i.e.
+    where it was darker than its elongated neighbourhood. That is true of hair,
+    but also of the darker parts of a textured lesion, so the mask is best read
+    as "thin or textured dark structure" rather than hair alone.
     """
     responses = [_directional_closing_max(image[..., c]) for c in range(3)]
     dilation = np.ones((HAIR_DILATION_SIZE, HAIR_DILATION_SIZE), dtype=bool)

@@ -2,11 +2,9 @@
 
 These are heuristics, so they are exactly the code that quietly stops working
 when something upstream changes. Each test here pins one claim the docstrings
-make, including the three fixes described in the paper's implementation notes:
-``clean_mask`` clipping to the real valid area instead of a guessed disc, the
-inversion threshold being relative to that same real area, and the convex
-hull's satellite reach being bounded by the image instead of growing with the
-lesion.
+make: ``clean_mask`` clipping to the real valid area instead of a guessed disc
+and never inverting a large lesion, and the convex hull's satellite reach being
+bounded by the image, for every satellite, instead of growing with the lesion.
 """
 
 import numpy as np
@@ -55,38 +53,28 @@ def test_no_valid_mask_means_no_clipping():
     assert cleaned.sum() == mask.sum()
 
 
-def test_normal_mask_is_left_alone():
-    """A lesion covering a plausible fraction of the valid area is not inverted."""
+def test_a_mask_inside_the_valid_area_is_left_alone():
     valid = disc_mask()
     mask = blob((SIZE // 2, SIZE // 2), 25)
     cleaned = clean_mask(mask, valid)
     assert cleaned.sum() == (mask.astype(bool) & valid).sum()
 
 
-def test_inverted_mask_is_flipped_back():
-    """A mask that selected skin instead of lesion covers most of the valid area."""
-    valid = disc_mask()
-    lesion = blob((SIZE // 2, SIZE // 2), 15)
-    skin_selected = (valid & ~lesion.astype(bool)).astype(np.uint8)
-    cleaned = clean_mask(skin_selected, valid)
-    # The guard should have recovered the lesion, not kept the skin.
-    assert cleaned.sum() < skin_selected.sum()
-    assert cleaned[SIZE // 2, SIZE // 2] == 1
+def test_a_large_lesion_is_never_inverted():
+    """A lesion covering most of the valid area must come through intact.
 
-
-def test_inversion_threshold_is_relative_to_the_valid_area_not_the_rectangle():
-    """The second fix: 60% means 60% of the real valid area, not of the array.
-
-    Here the valid area is a small region inside a much bigger rectangle.
-    Filling it completely is 100% of the valid area (must invert) but only a
-    small fraction of the full array (the old, buggy comparison would not).
+    An earlier version flipped any mask covering more than 60% of the valid
+    area, assuming it had selected skin instead of lesion. Two ground-truth
+    lesions in this dataset are that large, so the guard turned a perfect
+    segmentation of them into its complement, while never once rescuing a
+    real segmenter output. It was removed; this pins that.
     """
-    big = np.zeros((300, 300), dtype=bool)
-    big[100:150, 100:150] = True  # valid area: 2,500 px out of 90,000
-    full_valid_region = big.astype(np.uint8)  # mask == valid everywhere valid
+    valid = disc_mask()
+    large_lesion = blob((SIZE // 2, SIZE // 2), 40)
+    assert (large_lesion.astype(bool) & valid).sum() / valid.sum() > 0.6
 
-    cleaned = clean_mask(full_valid_region, big)
-    assert cleaned.sum() == 0, "100% of the valid area should trigger inversion"
+    finalized = finalize_mask(large_lesion, valid)
+    assert np.array_equal(finalized.astype(bool), large_lesion.astype(bool) & valid)
 
 
 def test_empty_mask_stays_empty():
@@ -99,26 +87,6 @@ def test_fill_holes_closes_hair_remnants():
     mask = blob((SIZE // 2, SIZE // 2), 20)
     holed = mask & (1 - blob((SIZE // 2, SIZE // 2), 4))
     assert fill_holes(holed).sum() == mask.sum()
-
-
-def test_inversion_guard_runs_before_hole_filling():
-    """The order in finalize_mask is load-bearing, not cosmetic.
-
-    On an inverted mask the lesion *is* the hole. Filling first erases the
-    region the guard needs, and the pipeline ends up with nothing at all.
-    """
-    valid = disc_mask()
-    lesion = blob((SIZE // 2, SIZE // 2), 15)
-    inverted = (valid & ~lesion.astype(bool)).astype(np.uint8)
-
-    correct = finalize_mask(inverted, valid)
-    wrong_order = clean_mask(fill_holes(inverted), valid)
-
-    assert wrong_order.sum() == 0, "filling first should destroy the lesion"
-    assert correct.sum() > 0
-    # And what it recovered really is the lesion.
-    overlap = np.logical_and(correct, lesion).sum()
-    assert overlap / lesion.sum() > 0.9
 
 
 def test_convex_hull_ignores_a_distant_speck():
@@ -142,7 +110,7 @@ def test_convex_hull_keeps_a_nearby_satellite():
 
 
 def test_convex_hull_reach_does_not_exceed_the_image_on_a_large_lesion():
-    """The third fix: the satellite reach must stay bounded by the image.
+    """The satellite reach must stay bounded by the image.
 
     A radius-relative reach (the previous design) grows with the lesion, so on
     a large enough lesion it exceeds the image itself: every pixel, including
@@ -161,12 +129,12 @@ def test_convex_hull_reach_does_not_exceed_the_image_on_a_large_lesion():
 
 
 def test_convex_hull_rejects_a_large_but_distant_region():
-    """The fourth fix: size grants no exemption from the distance rule.
+    """Size grants no exemption from the distance rule.
 
     A region used to be kept regardless of distance if it was large relative
     to the lesion (meant to catch a genuine second lobe of the same lesion).
-    In practice a large, far, unrelated blob — a texture artefact elsewhere in
-    the image — satisfied that just as well and was glued into the hull no
+    In practice a large, far, unrelated blob (a texture artefact elsewhere in
+    the image) satisfied that just as well and was glued into the hull no
     matter how far away it was. Distance alone decides now, however large the
     other region is.
     """

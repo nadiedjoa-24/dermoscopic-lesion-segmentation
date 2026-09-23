@@ -80,7 +80,10 @@ def binarize_patterns(codes: np.ndarray) -> np.ndarray:
 
 
 def pinkness(a_star: np.ndarray, b_star: np.ndarray) -> float:
-    """Paper's cluster score: reddish and not yellowish."""
+    """Paper's cluster score: rewards red (positive a*) and blue (negative b*).
+
+    Yellow (positive b*) earns nothing but is not penalised either.
+    """
     return float(np.mean(np.maximum(a_star, 0) - np.minimum(b_star, 0)))
 
 

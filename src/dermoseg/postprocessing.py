@@ -14,7 +14,7 @@ from skimage.measure import label, regionprops
 # A satellite closer than this fraction of the image diagonal is kept.
 # Expressed against the diagonal rather than the lesion's own radius: on a
 # large lesion, a radius-relative reach can exceed the image itself, so the
-# "distant speck" it was meant to exclude becomes unreachable — every pixel in
+# "distant speck" it was meant to exclude becomes unreachable: every pixel in
 # the image counts as "close enough". Measured against the 20 images here, the
 # farthest corner from the lesion sits at 51-58% of the diagonal regardless of
 # lesion size, so 0.25 keeps genuine nearby fragments while remaining unable to
@@ -24,13 +24,10 @@ from skimage.measure import label, regionprops
 # distance when it was large relative to the lesion (more than 3% of its
 # area), meant to catch a genuine second lobe of the lesion. In practice a
 # region that size is just as often an unrelated artefact placed anywhere in
-# the image — a patch of scaly skin texture picked up by LBP in a corner, for
-# instance — and being large gave it no more reason to belong to the lesion
+# the image (a patch of scaly skin texture picked up by LBP in a corner, for
+# instance), and being large gave it no more reason to belong to the lesion
 # than being small. Distance alone decides now.
 SATELLITE_DISTANCE_FRACTION = 0.25
-# Above this coverage of the valid area a mask is assumed to be inverted
-# (skin selected, not lesion).
-INVERSION_COVERAGE = 0.60
 
 
 def fill_holes(mask: np.ndarray) -> np.ndarray:
@@ -39,16 +36,13 @@ def fill_holes(mask: np.ndarray) -> np.ndarray:
 
 
 def clean_mask(mask: np.ndarray, valid: np.ndarray | None = None) -> np.ndarray:
-    """Drop everything outside the valid image area, and undo an inverted mask.
+    """Drop everything outside the valid image area.
 
-    The inversion guard matters because every segmenter here picks a cluster or
-    region by a heuristic; on low-contrast images that heuristic can select the
-    skin instead of the lesion, producing the exact complement of the answer.
-    A mask covering more than :data:`INVERSION_COVERAGE` of the valid area is
-    assumed to have made that mistake.
-
-    This is a heuristic, not a principled step: it rescues failures rather than
-    preventing them, and it is reported as part of the pipeline for that reason.
+    An earlier version also inverted any mask covering more than 60% of the
+    valid area, on the theory that it had selected skin instead of lesion. On
+    this dataset no segmenter output ever came near that coverage, while two
+    real lesions exceed it, so the guard could only ever turn a correct mask
+    into its complement. It was removed.
 
     Args:
         mask: The raw binary mask.
@@ -57,28 +51,16 @@ def clean_mask(mask: np.ndarray, valid: np.ndarray | None = None) -> np.ndarray:
             Frame removal whitens the corners outside the dermoscope disc on
             images that have a frame, and leaves the whole image valid on
             images that do not. Using that real area, rather than guessing a
-            disc from the image's aspect ratio, is what makes both this crop
-            and the inversion threshold below mean what they say: a rectangular
-            image is not a disc, so a disc inscribed in it covers only part of
-            the rectangle, and comparing coverage against the whole rectangle
-            instead of the real valid area makes the 60% threshold nearly
-            unreachable. Defaults to the whole image when omitted, for callers
-            that have no preprocessing mask to give.
+            disc from the image's aspect ratio, keeps lesion pixels that a
+            guessed disc would cut. Defaults to the whole image when omitted,
+            for callers that have no preprocessing mask to give.
     """
     mask = np.asarray(mask)
-    if mask.sum() == 0:
-        return mask.astype(np.uint8)
-
     if valid is None:
-        valid = np.ones(mask.shape, dtype=bool)
+        return mask.astype(np.uint8)
 
     cleaned = mask.copy()
     cleaned[~valid] = 0
-
-    if cleaned.sum() / max(valid.sum(), 1) > INVERSION_COVERAGE:
-        cleaned = 1 - cleaned
-        cleaned[~valid] = 0
-
     return cleaned.astype(np.uint8)
 
 

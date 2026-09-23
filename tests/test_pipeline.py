@@ -13,7 +13,7 @@ def test_a_perfect_mask_scores_one_on_a_framed_image(monkeypatch):
 
     Before this was fixed, the full-size ground truth was *resized* to the
     cropped shape instead, stretching it: a perfect segmentation of a framed
-    image scored well below 1.0 (about 0.92 on this dataset's framed images).
+    image scored well below 1.0 (0.915 to 0.965 on this dataset's framed images).
     """
     height, width = 200, 300
     grid_y, grid_x = np.ogrid[:height, :width]

@@ -84,7 +84,7 @@ def test_luminance_rescales_float_images_to_0_255():
     assert np.allclose(luminance_bt601(white * 255.0), 255.0)
 
 
-def test_pinkness_prefers_reddish_over_yellowish():
+def test_pinkness_scores_red_above_yellow():
     reddish = pinkness(np.full(10, 20.0), np.zeros(10))
     yellowish = pinkness(np.zeros(10), np.full(10, 30.0))
     assert reddish > yellowish

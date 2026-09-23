@@ -9,7 +9,8 @@ from skimage.transform import resize
 
 # Every method computes on a downscaled copy. The lesion border is a
 # large-scale structure, so 256x256 loses no useful detail, keeps the three
-# methods comparable, and brings the per-image cost down to about a second.
+# methods comparable, and keeps each method to about a second per image
+# (preprocessing, hair removal above all, is what dominates the running time).
 CALC_SIZE = (256, 256)
 
 

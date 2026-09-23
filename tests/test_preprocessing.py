@@ -30,7 +30,7 @@ def test_diagonal_footprint_spans_the_requested_length_diagonally():
     column. The diagonal counterpart has to span the *same* physical length,
     along its own diagonal, which means a smaller bounding box (by a factor of
     ~sqrt(2)) than an axis-aligned element of the same nominal length would
-    have — not the same bounding box, which would make it longer than intended.
+    have, not the same bounding box, which would make it longer than intended.
     """
     footprint = _diagonal_footprint(length=100, width=1)
     diagonal_reach = np.hypot(*footprint.shape)
@@ -38,11 +38,9 @@ def test_diagonal_footprint_spans_the_requested_length_diagonally():
 
 
 def test_directional_closing_is_the_max_of_all_four_orientations():
-    """A regression guard on the fix itself: all four closings must run and count.
+    """All four closings must run and enter the pixelwise maximum.
 
-    Recomputes the same four closings independently and checks
-    _directional_closing_max against their pixelwise maximum, so dropping an
-    orientation back out of the max (the bug this test guards against) shows
+    Pins the detector's current definition, so dropping an orientation shows
     up as a mismatch rather than a subtle score change.
     """
     from skimage import morphology
@@ -50,8 +48,8 @@ def test_directional_closing_is_the_max_of_all_four_orientations():
     rng = np.random.default_rng(0)
     channel = rng.integers(0, 256, size=(70, 70)).astype(float)
 
-    horizontal = np.ones((50, 10), dtype=bool)
-    vertical = np.ones((10, 50), dtype=bool)
+    vertical = np.ones((50, 10), dtype=bool)
+    horizontal = np.ones((10, 50), dtype=bool)
     diagonal = _diagonal_footprint(50, 10)
     anti_diagonal = _diagonal_footprint(50, 10, anti=True)
 

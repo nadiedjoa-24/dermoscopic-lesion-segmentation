@@ -53,14 +53,10 @@ class PipelineOutcome:
 def finalize_mask(raw_mask: np.ndarray, valid: np.ndarray | None = None) -> np.ndarray:
     """Shared post-processing, applied identically to every method.
 
-    Order matters: the inversion guard in :func:`~dermoseg.postprocessing.clean_mask`
-    has to run before the holes are filled. On an inverted mask the lesion *is*
-    the hole, so filling first would erase the very region the guard needs to
-    recover, leaving an empty mask.
-
-    ``valid`` is the real valid-area mask from preprocessing, passed through so
-    ``clean_mask`` clips to the actual dermoscope disc instead of guessing one
-    from the image's aspect ratio.
+    Clip to the valid area, then fill holes. ``valid`` is the real valid-area
+    mask from preprocessing, passed through so ``clean_mask`` clips to the
+    actual dermoscope disc instead of guessing one from the image's aspect
+    ratio.
     """
     return fill_holes(clean_mask(raw_mask, valid))
 

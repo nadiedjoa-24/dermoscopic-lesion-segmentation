@@ -69,6 +69,22 @@ def test_segment_returns_a_binary_mask_matching_the_input_shape():
     assert set(np.unique(result.mask)) <= {0, 1}
 
 
+def test_felzenszwalb_smoothing_does_not_mix_colour_channels():
+    """A scalar sigma on an (H, W, 3) array also blurs across the channel axis.
+
+    On a pure red image, that leaks red into green and blue. Each channel has
+    to be smoothed on its own.
+    """
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    image[..., 0] = 255
+
+    result = segment(image, scale=25.0, gaussian_sigma=2.0, backend="felzenszwalb")
+    smoothed = result.steps["Gaussian smoothing (sigma=2.0)"]
+
+    assert np.allclose(smoothed[..., 1], 0.0)
+    assert np.allclose(smoothed[..., 2], 0.0)
+
+
 def test_segment_rejects_an_unknown_backend():
     with pytest.raises(ValueError):
         segment(np.zeros((10, 10, 3), dtype=np.uint8), backend="not-a-backend")

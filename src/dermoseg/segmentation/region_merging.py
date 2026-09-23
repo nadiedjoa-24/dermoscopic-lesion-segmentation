@@ -267,7 +267,13 @@ def segment(
             smoothed = gaussian(smoothed, sigma=gaussian_sigma, mode="reflect")
         labels = statistical_region_merging(smoothed, scale=scale)
     else:
-        smoothed = gaussian_filter(small, sigma=gaussian_sigma) if gaussian_sigma else small
+        # Felzenszwalb works on colour, so smooth each channel on its own: a
+        # zero sigma on the channel axis keeps red, green and blue apart.
+        smoothed = (
+            gaussian_filter(small, sigma=(gaussian_sigma, gaussian_sigma, 0))
+            if gaussian_sigma
+            else small
+        )
         labels = felzenszwalb_regions(smoothed, scale=scale)
 
     scores, score_map = score_regions(labels, small, valid_small)
